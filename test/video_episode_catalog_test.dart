@@ -6,6 +6,61 @@ import 'package:lume_box/features/video/video_episode_catalog.dart';
 import 'package:lume_box/features/video/direct_video_source.dart';
 
 void main() {
+  test('小数集号与整集分别匹配，文件名的清晰度不是小数', () {
+    const recap = SourceChapter(id: 'r', title: '番剧.S01E03.5.mkv');
+    const cn = SourceChapter(id: 'c', title: '第三点五话');
+    const feature = SourceChapter(id: 'f', title: '第3集');
+    expect(VideoEpisodeCatalog.matchingIndex(recap, [feature]), -1);
+    expect(VideoEpisodeCatalog.matchingIndex(recap, [feature, cn]), 1);
+    expect(VideoEpisodeCatalog.episodeKey(recap), '1:3.5');
+    expect(VideoEpisodeCatalog.episodeKey(
+      const SourceChapter(id: 'full', title: '第０３．５０集'),
+    ), '1:3.5');
+    expect(VideoEpisodeCatalog.displayLabel(recap, 8), '第 03.5 集');
+    for (final suffix in ['1080p', '2160p', '10bit']) {
+      expect(VideoEpisodeCatalog.episodeNumber('Show.S01E03.$suffix.mkv')?.episode, 3);
+    }
+  });
+  test('换线路和追更区分同集的上、下篇、预告和正片', () {
+    const top = SourceChapter(id: 'top', title: '第3集（上）');
+    const bottom = SourceChapter(id: 'bottom', title: '第3集（下）');
+    const preview = SourceChapter(id: 'preview', title: '第3集预告');
+    const full = SourceChapter(id: 'full', title: 'S01E03');
+    const sameTop = SourceChapter(id: 'other', title: '第03集 上');
+    expect(VideoEpisodeCatalog.matchingIndex(top, [bottom]), -1);
+    expect(VideoEpisodeCatalog.matchingIndex(top, [bottom, sameTop]), 1);
+    expect(VideoEpisodeCatalog.matchingIndex(full, [preview]), -1);
+    expect(VideoEpisodeCatalog.matchingIndex(preview, [full]), -1);
+    expect(VideoEpisodeCatalog.displayLabel(
+      const SourceChapter(id: 'file', title: 'Show.S01E03（下）.mkv'), 9,
+    ), '第 03 集（下）');
+    expect(VideoEpisodeCatalog.matchingIndex(
+      const SourceChapter(id: 'unknown', title: ''),
+      [const SourceChapter(id: 'unknown2', title: '')],
+    ), -1);
+    expect({for (final c in [top, bottom, preview, full]) VideoEpisodeCatalog.episodeKey(c)}, hasLength(4));
+  });
+  test('换线路按中文季数和集数匹配，不把第二季当成第一季', () {
+    const second = SourceChapter(id: 'cn', title: '第2季 第03集');
+    const first = SourceChapter(id: 's1', title: 'S01E03');
+    const matching = SourceChapter(id: 's2', title: 'Drama.S02E03.mkv');
+    expect(VideoEpisodeCatalog.matchingIndex(second, [first, matching]), 1);
+    expect(VideoEpisodeCatalog.matchingIndex(second, [first]), -1);
+    expect(VideoEpisodeCatalog.episodeKey(second), '2:3');
+    expect(VideoEpisodeCatalog.episodeNumber('第二季 第十一話'), (season: 2, episode: 11));
+    expect(VideoEpisodeCatalog.episodeNumber('第２季 第０３集'), (season: 2, episode: 3));
+    expect(VideoEpisodeCatalog.episodeNumber('Season 2 Episode 3'), (season: 2, episode: 3));
+  });
+  test('文件名的 DTS 声道数不参与换线，季标记兼容点号分隔', () {
+    const current = SourceChapter(id: 'current', title: '第2季 第3集');
+    const tagged = SourceChapter(id: 'right', title: 'Drama.DTS5.1.S02E03.mkv');
+    const dotted = SourceChapter(id: 'dotted', title: 'Drama.Season.02.Episode.03.mkv');
+    const other = SourceChapter(id: 'wrong', title: 'Drama.DTS2.0.S05E03.mkv');
+    expect(VideoEpisodeCatalog.matchingIndex(current, [other, tagged]), 1);
+    expect(VideoEpisodeCatalog.matchingIndex(current, [dotted]), 0);
+    expect(VideoEpisodeCatalog.seasonNumber('Drama.DTS5.1.E03.mkv'), isNull);
+    expect(VideoEpisodeCatalog.seasonNumber('剧名S02E03'), 2);
+  });
   test('跨线路只匹配明确同集，兼容文件名但不混淆季数和重复集数', () {
     const current = SourceChapter(id: 'a', title: '第2集');
     const file = SourceChapter(
@@ -88,10 +143,16 @@ void main() {
     final chapters = await source.chapters('capture');
     expect(chapters, hasLength(1));
     expect(chapters.single.title, '正片');
+    expect(chapters.single.id, 'web-episode-0');
+    final other = Uri.parse('https://fixture.test/movie.m3u8?token=secret');
+    final itemId = DirectVideoSource.captureItemId('', other);
+    expect(itemId, isNot(contains('secret')));
+    expect(itemId, isNot(DirectVideoSource.captureItemId('', source.uri)));
+    expect(DirectVideoSource.captureItemId('work-42', other), 'work-42');
     final content = await source.content(
       itemId: 'capture',
       chapterId: chapters.single.id,
-    ) as VideoContent;
+    );
     expect(content.headers['Referer'], 'https://fixture.test/page');
   });
 
@@ -117,23 +178,26 @@ void main() {
     final chapters = await source.chapters('drama');
     expect(chapters, hasLength(47));
     expect(VideoEpisodeCatalog.forChapter(chapters, 'e11'), hasLength(47));
+    await source.content(itemId: 'drama', chapterId: 'e0');
+    expect(resolved, [0]);
+    expect((await source.downloadContent('drama', 'e11')).url, source.uri);
     expect(
       (await source.content(
         itemId: 'drama',
         chapterId: 'e11',
-      ) as VideoContent).url.path,
+      )).url.path,
       '/12.m3u8',
     );
-    expect(resolved, isEmpty);
+    expect(resolved, [0]);
     expect(
       (await source.content(
         itemId: 'drama',
         chapterId: 'e12',
-      ) as VideoContent).url.path,
+      )).url.path,
       '/13.m3u8',
     );
     await source.content(itemId: 'drama', chapterId: 'e11');
-    expect(resolved, [12, 11]);
+    expect(resolved, [0, 12, 11]);
     await expectLater(
       source.content(itemId: 'drama', chapterId: 'missing'),
       throwsFormatException,

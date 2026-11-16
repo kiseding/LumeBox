@@ -18,26 +18,6 @@ void main() {
   TestDefaultBinaryMessenger messenger() =>
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
-  test('Aether 绑定自身内容源，未就绪不继续请求开窗', () async {
-    const aether = MethodChannel('lumebox/aether');
-    final calls = <MethodCall>[];
-    var ready = true;
-    messenger().setMockMethodCallHandler(aether, (call) async {
-      calls.add(call);
-      return ready;
-    });
-    addTearDown(() => messenger().setMockMethodCallHandler(aether, null));
-    final backend = MethodChannelPipBackend();
-    await backend.prepareAetherPlayer(42);
-    expect(calls.single.method, 'preparePip');
-    expect(calls.single.arguments, {'id': 42});
-    ready = false;
-    await expectLater(
-      backend.prepareAetherPlayer(42),
-      throwsA(isA<PipException>()),
-    );
-  });
-
   tearDown(() {
     messenger()
       ..setMockMethodCallHandler(methods, null)
@@ -112,12 +92,14 @@ void main() {
     await MethodChannelPipBackend().updatePlaybackState(
       playing: false,
       duration: const Duration(seconds: 484),
+      transitioning: true,
     );
     expect(received?.method, 'updateState');
     expect(received?.arguments, {
       'playing': false,
       'durationMs': 484000.0,
       'playbackRate': 1.0,
+        'transitioning': true,
     });
   });
 

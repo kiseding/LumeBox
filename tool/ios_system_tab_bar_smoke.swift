@@ -158,9 +158,13 @@ final class SystemTabBarSmoke: UIResponder, UIApplicationDelegate {
     _ = messenger.update(configuration)
     require(bar.items?.count == 2 && bar.items?.first?.accessibilityIdentifier == "shell.tab.settings",
                  "Invalid duplicate IDs must leave the previous native navigation intact")
-    configuration["entries"] = [["id": "comic", "label": "漫画"], ["id": "video", "label": "视频"], ["id": "settings", "label": "设置"], ["id": "search", "label": "搜索"]]
+    configuration["entries"] = [["id": "comic", "label": "漫画"], ["id": "video", "label": "视频"], ["id": "music", "label": "音乐"], ["id": "settings", "label": "设置"], ["id": "search", "label": "搜索"]]
     configuration["iconSize"] = 24
     _ = messenger.update(configuration)
     view.layoutIfNeeded()
+    require(bar.items?.map { $0.accessibilityIdentifier ?? "" } == ["shell.tab.comic", "shell.tab.video", "shell.tab.music", "shell.tab.settings", "shell.tab.search"],
+            "The native bar must accept and display all five production entries")
+    require(bar.items?.allSatisfy { $0.image != nil && $0.selectedImage != nil } == true,
+            "Every production tab, including music, must have a native symbol")
   }
 }

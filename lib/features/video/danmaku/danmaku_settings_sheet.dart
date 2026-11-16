@@ -59,7 +59,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
   Widget _sourcePanel(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final buttonStyle = ButtonStyle(
-      minimumSize: const WidgetStatePropertyAll(Size(0, 42)),
+      minimumSize: const WidgetStatePropertyAll(Size(0, 40)),
       padding: const WidgetStatePropertyAll(
         EdgeInsets.symmetric(horizontal: 12),
       ),
@@ -67,7 +67,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
       visualDensity: VisualDensity.compact,
     );
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       children: [
         DecoratedBox(
           decoration: BoxDecoration(
@@ -75,7 +75,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -134,7 +134,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
             ),
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Row(
           children: [
             if (widget.onMatch != null)
@@ -177,13 +177,20 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
         ),
         if (widget.onTools != null)
           ListTile(
-            title: const Text('自动匹配、链接、收藏与时间对齐'),
-            trailing: const Icon(Icons.chevron_right),
+            dense: true,
+            minTileHeight: 44,
+            minVerticalPadding: 0,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              '自动匹配、链接、收藏与时间对齐',
+              style: TextStyle(fontSize: 15),
+            ),
+            trailing: _navigationArrow('danmaku.tools.next'),
             onTap: widget.onTools,
           ),
         ListTile(
           dense: true,
-          minTileHeight: 52,
+          minTileHeight: 48,
           minVerticalPadding: 0,
           contentPadding: EdgeInsets.zero,
           minLeadingWidth: 20,
@@ -200,11 +207,7 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 11),
           ),
-          trailing: const LumeIcon(
-            Icons.chevron_right,
-            slot: 'danmaku.service.next',
-            size: 18,
-          ),
+          trailing: _navigationArrow('danmaku.service.next'),
           onTap: widget.onConfigureService,
         ),
         if (widget.onClearMatch != null &&
@@ -267,55 +270,58 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
     );
   }
 
+  Widget _navigationArrow(String slot) => SizedBox.square(
+    dimension: 24,
+    child: Center(child: LumeIcon(Icons.chevron_right, slot: slot, size: 18)),
+  );
+
   @override
   Widget build(BuildContext context) => DefaultTabController(
     length: 2,
     child: Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 2, 4, 0),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           child: Row(
             children: [
+              const Text(
+                '弹幕',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '弹幕',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                child: Text(
+                  [
                     if (widget.videoTitle?.isNotEmpty == true)
-                      Text(
-                        [
-                          widget.videoTitle!,
-                          if (widget.episodeTitle?.isNotEmpty == true)
-                            widget.episodeTitle!,
-                        ].join(' · '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                  ],
+                      widget.videoTitle!,
+                    if (widget.episodeTitle?.isNotEmpty == true)
+                      widget.episodeTitle!,
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
-              Switch.adaptive(
-                value: widget.settings.enabled,
-                onChanged: (value) =>
-                    widget.onChanged(widget.settings.copyWith(enabled: value)),
-              ),
-              IconButton(
-                tooltip: '返回播放',
-                onPressed: () => Navigator.pop(context),
-                icon: const LumeIcon(
-                  Icons.close,
-                  slot: 'danmaku.close',
-                  size: 22,
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 52,
+                height: 44,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Transform.scale(
+                    scale: .85,
+                    alignment: Alignment.centerRight,
+                    child: Switch.adaptive(
+                      value: widget.settings.enabled,
+                      onChanged: (value) => widget.onChanged(
+                        widget.settings.copyWith(enabled: value),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -324,8 +330,8 @@ class _DanmakuSettingsSheetState extends State<DanmakuSettingsSheet> {
         const TabBar(
           labelPadding: EdgeInsets.symmetric(horizontal: 12),
           tabs: [
-            Tab(height: 40, text: '来源与匹配'),
-            Tab(height: 40, text: '显示样式'),
+            Tab(height: 32, text: '来源与匹配'),
+            Tab(height: 32, text: '显示样式'),
           ],
         ),
         Expanded(
@@ -431,9 +437,9 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             : VisualDensity.standard,
         title: Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w600,
-            fontSize: LumeTypography.titleSize,
+            fontSize: widget.compact ? 14 : LumeTypography.titleSize,
           ),
         ),
         value: value,
@@ -450,7 +456,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
   Widget build(BuildContext context) {
     return Padding(
       padding: widget.compact
-          ? const EdgeInsets.fromLTRB(12, 8, 12, 8)
+          ? const EdgeInsets.fromLTRB(16, 12, 16, 16)
           : const EdgeInsets.fromLTRB(20, 16, 20, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -531,29 +537,49 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
             ),
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final rows in [1, 2, 3, 4, 5])
-                ChoiceChip(
-                  label: Text('$rows排'),
-                  selected: _settings.rows == rows,
-                  onSelected: (_) => _update(_settings.copyWith(rows: rows)),
-                ),
-              ChoiceChip(
-                label: const Text('半屏'),
-                selected: _settings.rows == 0 && _settings.displayArea == .5,
-                onSelected: (_) =>
-                    _update(_settings.copyWith(rows: 0, displayArea: .5)),
-              ),
-              ChoiceChip(
-                label: const Text('全屏'),
-                selected: _settings.rows == 0 && _settings.displayArea == 1,
-                onSelected: (_) =>
-                    _update(_settings.copyWith(rows: 0, displayArea: 1)),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, bounds) {
+              final width = (bounds.maxWidth - 24) / 4;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final rows in [1, 2, 3, 4, 5, 0, -1])
+                    SizedBox(
+                      width: width,
+                      child: ChoiceChip(
+                        showCheckmark: false,
+                        label: Center(
+                          child: Text(
+                            rows > 0
+                                ? '$rows排'
+                                : rows == 0
+                                ? '半屏'
+                                : '全屏',
+                          ),
+                        ),
+                        labelStyle: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        labelPadding: EdgeInsets.zero,
+                        selected: rows > 0
+                            ? _settings.rows == rows
+                            : _settings.rows == 0 &&
+                                  _settings.displayArea == (rows == 0 ? .5 : 1),
+                        onSelected: (_) => _update(
+                          rows > 0
+                              ? _settings.copyWith(rows: rows)
+                              : _settings.copyWith(
+                                  rows: 0,
+                                  displayArea: rows == 0 ? .5 : 1,
+                                ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
           if (widget.showAvoidSubtitles)
             _switch(
@@ -562,7 +588,7 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
               (value) => _update(_settings.copyWith(avoidSubtitles: value)),
             ),
           _switch(
-            '画中画显示弹幕（自动精简字号与密度）',
+            '画中画显示弹幕',
             _settings.pipEnabled,
             (value) => _update(_settings.copyWith(pipEnabled: value)),
           ),
@@ -716,12 +742,18 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
   }) {
     if (widget.compact) {
       return SizedBox(
-        height: 36,
+        height: 48,
         child: Row(
           children: [
             SizedBox(
-              width: 64,
-              child: Text(label, style: const TextStyle(fontSize: 12)),
+              width: 72,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
             Expanded(
               child: NativeGlassSlider(
@@ -733,11 +765,14 @@ class _DanmakuSettingsPanelState extends State<DanmakuSettingsPanel> {
               ),
             ),
             SizedBox(
-              width: 48,
+              width: 56,
               child: Text(
                 display,
                 textAlign: TextAlign.end,
-                style: const TextStyle(fontSize: 11),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],

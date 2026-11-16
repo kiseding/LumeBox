@@ -16,6 +16,7 @@ class PlayerMedia {
     this.headers,
     this.title,
     this.previews = const [],
+    this.isDownloaded = false,
   });
 
   /// 本地文件与网络地址统一用 URI 表达。
@@ -25,6 +26,7 @@ class PlayerMedia {
 
   final String? title;
   final List<VideoPreview> previews;
+  final bool isDownloaded;
 
   bool get isNetwork => uri.scheme == 'http' || uri.scheme == 'https';
 }
@@ -72,6 +74,11 @@ abstract class AbstractPlayer {
 
   /// 当前状态。UI 通过 [snapshot] 订阅，无需自行轮询。
   ValueListenable<PlayerSnapshot> get snapshot;
+
+  /// A loaded, paused item can still report buffering until play() is called.
+  /// Native implementations expose load readiness separately from that flag.
+  bool get mediaInitialized =>
+      !snapshot.value.buffering && snapshot.value.error == null;
 
   /// HUD 参数（编码格式 / 码率 / 帧率 / 缓冲状态 / 分辨率）。
   ///

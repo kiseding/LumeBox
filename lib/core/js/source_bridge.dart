@@ -147,6 +147,7 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
         method: options.method || 'GET',
         headers: options.headers || {},
         body: options.body == null ? null : String(options.body),
+        bodyBase64: options.bodyBase64 == null ? null : String(options.bodyBase64),
         // 透传二进制开关：脚本传 {binary:true} 时宿主会额外回 bodyBase64（见 fetch 垫片）。
         binary: options.binary === true
       });
@@ -156,7 +157,7 @@ class LumeSourceBridgePolyfill implements SandboxPolyfill {
     },
     post: function (url, body, options) {
       var settings = withTarget('POST', url, options);
-      if (settings.body == null) settings.body = body == null ? '' : String(body);
+      if (settings.body == null && settings.bodyBase64 == null) settings.body = body == null ? '' : String(body);
       return http.request(settings);
     }
   };
@@ -475,12 +476,12 @@ class LumeSourceBridge {
     'list': <String>['getList', 'list'],
     'detail': <String>['getDetail', 'getBookInfo', 'detail'],
     'chapters': <String>['getChapters', 'getChapterList', 'chapters'],
-    'chapterPage': <String>['chapterPage'],
     'content': <String>['getContent', 'getChapterContent', 'content'],
     // 首页（可选契约，用户口径任务 3）：多板块模式 / 旧兼容的纯列表模式。
     'home': <String>['getHome', 'getHomeContent', 'home'],
     // 筛选标签（可选契约，用户口径任务 1）：分页跳转筛选的标签组。
     'filters': <String>['getFilters', 'getFilterGroups', 'filters'],
+    'chapterPage': <String>['chapterPage'],
   };
 
   /// 契约方法名列表（与 `JsSourceContract.methods` 同名同序）。

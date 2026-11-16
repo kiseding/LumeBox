@@ -1,4 +1,5 @@
 import '../video/video_player_settings.dart';
+import '../video/video_episode_catalog.dart';
 import '../video/playback_quality_preference.dart';
 import 'tracking_resume.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -22,6 +23,7 @@ import '../../core/experience/content_center.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
+import '../../core/source/source_content_type.dart';
 import '../comic/comic_detail_page.dart';
 import '../comic/comic_reader_page.dart';
 import '../novel/novel_reader_page.dart';
@@ -35,9 +37,11 @@ class ContentCenterPage extends StatefulWidget {
     super.key,
     this.initialTab = 0,
     this.initialReference,
+    this.managerFor = LumeSources.manager,
   });
   final int initialTab;
   final String? initialReference;
+  final SourceManager Function(Section) managerFor;
   @override
   State<ContentCenterPage> createState() => _ContentCenterPageState();
 }
@@ -69,6 +73,7 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
         libraries.add(await ReadingLibrary.open(section));
       }
       await AudioBookSettings.instance.load();
+      await MediaLibrary.instance.boot();
       if (mounted) setState(() {});
       if (widget.initialReference != null) {
         final key = widget.initialReference;
@@ -90,48 +95,50 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
     super.dispose();
   }
 
-  List<({LibraryItem item, ReadingProgress progress})> get audioEntries => [
-    for (final section in Section.values)
-      for (final resource in MediaLibrary.instance.entries(section))
-        if (resource.kind == ResourceKind.audioBook)
-          if (AudioBookSettings.instance.positions[resource.id]
-              case final saved?)
-            (
-              item: LibraryItem(
-                section: section,
-                itemId: resource.id,
-                sourceId: '@audio-library',
-                title: resource.title,
-                chapterCount: resource.episodes.length,
-                readChapterIndex: saved['index'] ?? 0,
-                addedAt: DateTime.fromMillisecondsSinceEpoch(
-                  saved['updatedAt'] ?? 0,
-                ),
-                updatedAt: DateTime.fromMillisecondsSinceEpoch(
-                  saved['updatedAt'] ?? 0,
-                ),
-              ),
-              progress: VideoProgress(
-                section: section,
-                sourceId: '@audio-library',
-                itemId: resource.id,
-                chapterIndex: saved['index'] ?? 0,
-                chapterId: resource.episodes.isEmpty
-                    ? ''
-                    : resource
-                          .episodes[(saved['index'] ?? 0).clamp(
-                            0,
-                            resource.episodes.length - 1,
-                          )]
-                          .id,
-                chapterTitle: '听书',
-                updatedAt: DateTime.fromMillisecondsSinceEpoch(
-                  saved['updatedAt'] ?? 0,
-                ),
-                position: Duration(milliseconds: saved['position'] ?? 0),
-              ),
+  List<({LibraryItem item, ReadingProgress progress})> get audioEntries {
+    final entries = <({LibraryItem item, ReadingProgress progress})>[];
+    final settings = AudioBookSettings.instance;
+    for (final section in Section.values) {
+      for (final resource in MediaLibrary.instance.entries(section)) {
+        final saved = settings.positions[resource.id];
+        if (resource.kind != ResourceKind.audioBook || saved == null) continue;
+        final index = settings.indexFor(resource);
+        entries.add((
+          item: LibraryItem(
+            section: section,
+            itemId: resource.id,
+            sourceId: '@audio-library',
+            title: resource.title,
+            chapterCount: resource.episodes.length,
+            readChapterIndex: index,
+            addedAt: DateTime.fromMillisecondsSinceEpoch(
+              saved['updatedAt'] ?? 0,
             ),
-  ];
+            updatedAt: DateTime.fromMillisecondsSinceEpoch(
+              saved['updatedAt'] ?? 0,
+            ),
+          ),
+          progress: VideoProgress(
+            section: section,
+            sourceId: '@audio-library',
+            itemId: resource.id,
+            chapterIndex: index,
+            chapterId:
+                settings.chapterIds[resource.id] ??
+                resource.episodes.elementAtOrNull(index)?.id ??
+                '',
+            chapterTitle: '听书',
+            updatedAt: DateTime.fromMillisecondsSinceEpoch(
+              saved['updatedAt'] ?? 0,
+            ),
+            position: Duration(milliseconds: saved['position'] ?? 0),
+          ),
+        ));
+      }
+    }
+    return entries;
+  }
+
   List<LibraryItem> get entries => [
     ...audioEntries.map((v) => v.item),
     for (final lib in libraries) ...lib.history(limit: 10000),
@@ -143,6 +150,11 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
   Future<void> run(Future<void> Function() action) async {
     try {
       await action();
+    } on FormatException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -166,6 +178,7 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
     bool resume = true,
     bool nextUnwatched = false,
     int? chapter,
+    String? chapterId,
     int? seconds,
     int? page,
   }) async {
@@ -182,14 +195,19 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
       await openMediaResource(
         context,
         resource,
-        index: chapter,
+        index: chapterId == null
+            ? chapter
+            : TrackingResume.bookmarkIndex(
+                resource.episodes.map((e) => e.id),
+                chapterId,
+              ),
         position: seconds == null ? null : Duration(seconds: seconds),
       );
       if (mounted) setState(() {});
       return;
     }
     final lib = await ReadingLibrary.open(ref.section);
-    final manager = LumeSources.manager(ref.section);
+    final manager = widget.managerFor(ref.section);
     final source = await manager.open(ref.source);
     if (source == null) throw StateError('源未安装或不可用');
     final target = ReadingTarget(
@@ -206,15 +224,16 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
     if (resume &&
         (progress != null ||
             chapter != null ||
+            chapterId != null ||
             (nextUnwatched && ref.section == Section.video))) {
-      var chapters = await source
-          .chapters(ref.item)
+      var chapters = await VideoEpisodeCatalog.load(source, ref.item)
           .timeout(const Duration(seconds: 40));
       if (chapters.isEmpty) throw StateError('目录为空');
       if (ref.section == Section.video) {
         chapters = TrackingResume.episodes(
           chapters,
           progress is VideoProgress ? progress : null,
+          chapterId: chapterId,
         );
         if (nextUnwatched) {
           final next = TrackingResume.index(
@@ -226,12 +245,29 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
         }
       }
       final saved = chapters.indexWhere((c) => c.id == progress?.chapterId);
-      final index =
-          (chapter ?? (saved >= 0 ? saved : progress?.chapterIndex ?? 0)).clamp(
-            0,
-            chapters.length - 1,
-          );
-      if (progress is NovelProgress) {
+      final index = chapterId != null
+          ? TrackingResume.bookmarkIndex(chapters.map((c) => c.id), chapterId)
+          : (chapter ?? (saved >= 0 ? saved : progress?.chapterIndex ?? 0))
+                .clamp(0, chapters.length - 1);
+      final explicitChapter = !nextUnwatched && (chapter != null || chapterId != null);
+      final SourceContentType? type;
+      if (page != null) {
+        type = SourceContentType.comic;
+      } else if (seconds != null) {
+        type = SourceContentType.video;
+      } else if (explicitChapter) {
+        type = await detectSourceContent(
+          source: source, itemId: ref.item, detail: null, chapters: [chapters[index]],
+        ).timeout(const Duration(seconds: 40));
+        if (type == null) throw const FormatException('书签对应的章节暂无内容');
+      } else {
+        type = switch (progress) {
+          NovelProgress() => SourceContentType.novel,
+          ComicProgress() => SourceContentType.comic,
+          _ => SourceContentType.video,
+        };
+      }
+      if (type == SourceContentType.novel) {
         screen = NovelReaderPage(
           source: source,
           library: lib,
@@ -239,70 +275,56 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
           chapters: chapters,
           initialChapterIndex: index,
         );
-      } else if (progress is ComicProgress) {
+      } else if (type == SourceContentType.comic) {
         screen = ComicReaderPage(
           library: lib,
           dataSource: source,
           target: target,
           chapters: chapters,
           initialChapterIndex: index,
-          initialPage: page ?? progress.page,
+          initialPage: page ?? (progress is ComicProgress &&
+              progress.chapterId == chapters[index].id ? progress.page : 0),
         );
       } else {
-        final content = await source
-            .content(itemId: ref.item, chapterId: chapters[index].id)
-            .timeout(const Duration(seconds: 40));
-        if (content is VideoContent) {
-          final qualities = SourcePlayback.contentQualities(
-            content,
-            source: source,
-          );
-          final selected = PlaybackQualityPreference.select(
-            qualities,
-            VideoPlayerSettingsStore(lib).load(),
-          );
-          final uri = selected?.url ?? SourcePlayback.contentAddress(content);
-          if (uri == null) throw StateError('没有播放地址');
-          screen = VideoPlayerPage(
-            media: PlayerMedia(
-              uri: uri,
-              headers:
-                  selected?.headers ??
-                  SourcePlayback.contentHeaders(content, source: source),
-              title: ref.title,
-            ),
-            source: source,
-            sourceManager: manager,
-            library: lib,
+        final content = await SourceContentRead.read(
+          source, itemId: ref.item, chapterId: chapters[index].id,
+        ).timeout(const Duration(seconds: 40));
+        if (content is! VideoContent) throw const FormatException('此章节暂无可打开的内容');
+        final qualities = SourcePlayback.contentQualities(
+          content,
+          source: source,
+        );
+        final selected = PlaybackQualityPreference.select(
+          qualities,
+          VideoPlayerSettingsStore(lib).load(),
+        );
+        final uri = selected?.url ?? SourcePlayback.contentAddress(content);
+        if (uri == null) throw StateError('没有播放地址');
+        screen = VideoPlayerPage(
+          initialPosition: seconds == null
+              ? null
+              : Duration(seconds: seconds),
+          media: PlayerMedia(
+            uri: uri,
+            headers:
+                selected?.headers ??
+                SourcePlayback.contentHeaders(content, source: source),
+            title: ref.title,
+          ),
+          source: source,
+          sourceManager: manager,
+          library: lib,
+          sourceId: ref.source,
+          target: VideoPlayTarget(
             sourceId: ref.source,
-            target: VideoPlayTarget(
-              sourceId: ref.source,
-              itemId: ref.item,
-              title: ref.title,
-              chapterIndex: index,
-              chapterId: chapters[index].id,
-              chapterTitle: chapters[index].title,
-            ),
-            qualities: qualities,
-          );
-          if (seconds != null) {
-            lib.saveProgress(
-              VideoProgress(
-                section: ref.section,
-                sourceId: ref.source,
-                itemId: ref.item,
-                chapterIndex: index,
-                chapterId: chapters[index].id,
-                chapterTitle: chapters[index].title,
-                updatedAt: DateTime.now(),
-                position: Duration(seconds: seconds),
-                duration: progress is VideoProgress
-                    ? progress.duration
-                    : Duration.zero,
-              ),
-            );
-          }
-        }
+            itemId: ref.item,
+            title: ref.title,
+            chapterIndex: index,
+            chapterId: chapters[index].id,
+            chapterTitle: chapters[index].title,
+          ),
+          qualities: qualities,
+        );
       }
     }
     if (!mounted) return;
@@ -535,6 +557,7 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
                                 ref,
                                 text: note,
                                 chapter: entry.progress.chapterIndex,
+                                chapterId: entry.progress.chapterId,
                                 seconds: entry.progress is VideoProgress
                                     ? (entry.progress as VideoProgress)
                                           .position
@@ -722,6 +745,7 @@ class _ContentCenterPageState extends State<ContentCenterPage> {
                           () => open(
                             ref,
                             chapter: clip['chapter'] as int?,
+                            chapterId: clip['chapterId'] as String?,
                             seconds: clip['seconds'] as int?,
                             page: clip['page'] as int?,
                           ),

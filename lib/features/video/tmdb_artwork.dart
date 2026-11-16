@@ -357,12 +357,25 @@ class _TmdbMatchPickerState extends State<_TmdbMatchPicker> {
       busy = true;
       error = null;
     });
-    final result = await widget.controller.client.searchMatches(query.text);
+    List<TmdbMatchCandidate> result;
+    String? failure;
+    try {
+      result = await widget.controller.client
+          .searchMatches(query.text)
+          .timeout(const Duration(seconds: 20));
+      failure = widget.controller.client.lastError;
+    } on TimeoutException {
+      result = [];
+      failure = 'TMDB 搜索超时，请检查网络后重试';
+    } catch (_) {
+      result = [];
+      failure = 'TMDB 搜索失败，请重试';
+    }
     if (!mounted || current != sequence) return;
     setState(() {
       candidates = result;
       busy = false;
-      error = widget.controller.client.lastError;
+      error = failure;
     });
   }
 
@@ -394,11 +407,12 @@ class _TmdbMatchPickerState extends State<_TmdbMatchPicker> {
   Widget build(BuildContext context) => videoGlassDialogSurface(
     context,
     AlertDialog(
+      scrollable: true,
       title: const Text('选择 TMDB 条目'),
       content: SizedBox(
         width: 480,
-        height: MediaQuery.sizeOf(context).height * .5,
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text('按年份、类型和简介确认同名作品；也可以修改片名重新搜索。'),
@@ -419,11 +433,45 @@ class _TmdbMatchPickerState extends State<_TmdbMatchPicker> {
               ),
             ),
             const SizedBox(height: 12),
-            Expanded(
+            SizedBox(
+              height: busy || error != null || candidates.isEmpty
+                  ? 112
+                  : min(
+                      320,
+                      max(
+                        112,
+                        (MediaQuery.sizeOf(context).height -
+                                MediaQuery.viewInsetsOf(context).vertical) *
+                            .35,
+                      ),
+                    ),
               child: busy
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 12),
+                          Text('正在搜索 TMDB…'),
+                        ],
+                      ),
+                    )
                   : error != null
-                  ? Center(child: Text(error!))
+                  ? Center(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(error!, textAlign: TextAlign.center),
+                            TextButton.icon(
+                              onPressed: search,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('重试'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   : candidates.isEmpty
                   ? const Center(child: Text('未找到条目，请修改片名后搜索'))
                   : ListView.builder(

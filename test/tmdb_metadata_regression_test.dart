@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -69,6 +70,150 @@ http.Response response(Uri uri, {bool alias = false}) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('连续片名后缀与独立年份可以清理，不吞掉真正片名', () {
+    expect(TmdbClient.cleanTitle('影片【已完结】 国粤双语 中英双字 1080p 高清'), '影片');
+    expect(TmdbClient.cleanTitle('影片 (2026)'), '影片');
+    expect(TmdbClient.cleanTitle('影片 第二十集'), '影片');
+    expect(TmdbClient.cleanTitle('完结'), '完结');
+    expect(TmdbClient.cleanTitle('2001太空漫游'), '2001太空漫游');
+  });
+  for (final type in <String?>[null, 'movie', 'tv']) {
+    test('综合搜索无结果时专用接口补查，仍核对年份与类型：$type', () async {
+      final searches = <String>[];
+      final kind = type ?? 'tv';
+      final client = TmdbClient(
+        configured(),
+        client: MockClient((request) async {
+          final path = request.url.path;
+          if (path.contains('/search/')) {
+            searches.add(path.split('/').last);
+            if (path.endsWith('/multi')) return json({'results': []});
+            final media = path.endsWith('/movie') ? 'movie' : 'tv';
+            return json({
+              'results': media == kind
+                  ? [
+                      {
+                        'id': 42,
+                        if (media == 'tv') 'name': '目标影片' else 'title': '目标影片',
+                        if (media == 'tv')
+                          'first_air_date': '2026-01-01'
+                        else
+                          'release_date': '2026-01-01',
+                      },
+                    ]
+                  : [],
+            });
+          }
+          expect(path, endsWith('/$kind/42'));
+          return json({
+            'title': '目标影片',
+            'name': '目标影片',
+            'release_date': '2026-01-01',
+            'first_air_date': '2026-01-01',
+            'overview': '补查成功',
+            'images': {'posters': []},
+          });
+        }),
+      );
+      expect(
+        (await client.lookup('目标影片', year: '2026', mediaType: type))?.overview,
+        '补查成功',
+      );
+      expect(searches.first, 'multi');
+      if (type != null) {
+        expect(searches, ['multi', type]);
+      } else {
+        expect(searches.toSet(), {'multi', 'movie', 'tv'});
+      }
+      expect(
+        await client.lookup('目标影片', year: '2025', mediaType: type),
+        isNull,
+      );
+      client.dispose();
+    });
+  }
+  test('电影和剧集专用补查同时命中同名作品时不自动任选', () async {
+    var details = 0;
+    final client = TmdbClient(
+      configured(),
+      client: MockClient((request) async {
+        final path = request.url.path;
+        if (path.endsWith('/multi')) return json({'results': []});
+        if (path.contains('/search/')) {
+          return json({
+            'results': [
+              {
+                'id': path.endsWith('/movie') ? 1 : 2,
+                'title': '同名作品',
+                'name': '同名作品',
+                'release_date': '2026-01-01',
+                'first_air_date': '2026-01-01',
+              },
+            ],
+          });
+        }
+        details++;
+        return json({});
+      }),
+    );
+    expect(await client.lookup('同名作品'), isNull);
+    expect(client.lastError, contains('多个同名'));
+    expect(details, 0);
+    final manual = await client.searchMatches('同名作品');
+    expect(manual.map((row) => row.mediaType).toSet(), {'movie', 'tv'});
+    client.dispose();
+  });
+  test('详情标题到达后自动补查并应用资料，无需打开手动匹配', () async {
+    final settings = configured();
+    final loaded = Completer<void>();
+    final client = TmdbClient(
+      settings,
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/search/multi') ||
+            request.url.path.endsWith('/search/movie')) {
+          return json({'results': []});
+        }
+        if (request.url.path.endsWith('/search/tv')) {
+          return json({
+            'results': [
+              {'id': 42, 'name': '目标剧集', 'first_air_date': '2026-01-01'},
+            ],
+          });
+        }
+        return json({
+          'name': '目标剧集',
+          'first_air_date': '2026-01-01',
+          'overview': '自动加载的简介',
+          'images': {
+            'posters': [
+              {'file_path': '/auto.jpg'},
+            ],
+          },
+          'credits': {
+            'cast': [
+              {'name': '示例演员'},
+            ],
+          },
+        });
+      }),
+    );
+    final controller = TmdbDetailController(
+      '列表名称',
+      settings: settings,
+      client: client,
+      autoLoad: false,
+    );
+    controller.addListener(() {
+      if (controller.metadata != null && !loaded.isCompleted) loaded.complete();
+    });
+    controller.updateTitles(['目标剧集'], year: '2026', mediaType: 'tv');
+    await loaded.future;
+    expect(controller.metadata!.overview, '自动加载的简介');
+    expect(controller.metadata!.cast, ['示例演员']);
+    expect(controller.metadata!.posters.single, endsWith('/auto.jpg'));
+    expect(controller.loading, isFalse);
+    controller.dispose();
+  });
   test('测试与业务的搜索详情图片请求全部使用同一代理和Key', () async {
     final settings = configured();
     final urls = <Uri>[];

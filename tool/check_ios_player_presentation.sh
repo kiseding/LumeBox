@@ -5,6 +5,17 @@ flutter precache --ios
 FLUTTER_ROOT=$(dirname "$(dirname "$(command -v flutter)")")
 FRAMEWORKS="$FLUTTER_ROOT/bin/cache/artifacts/engine/ios/Flutter.xcframework/ios-arm64_x86_64-simulator"
 test -d "$FRAMEWORKS"
+NATIVE_SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+if [ -f ios/Runner/NativeVideoPlayerController.swift ]; then
+  xcrun swiftc -typecheck -sdk "$NATIVE_SDK" -target arm64-apple-ios18.0-simulator \
+    -F "$FRAMEWORKS" -import-objc-header ios/Runner/NativeMPVBridge.h \
+    ios/Runner/NativeVideoEngine.swift ios/Runner/NativeVideoPlayerController.swift
+  NATIVE_OBJECT=$(mktemp -t native-mpv).o
+  xcrun clang -fobjc-arc -fmodules -Wno-deprecated-declarations -isysroot "$NATIVE_SDK" \
+    -target arm64-apple-ios18.0-simulator -c ios/Runner/NativeMPVBridge.m -o "$NATIVE_OBJECT"
+  rm -f "$NATIVE_OBJECT"
+  echo "Native UIKit video screen, AVPlayer and libmpv bridge compile checks passed"
+fi
 CHECK_DIR=$(mktemp -d)
 trap 'rm -rf "$CHECK_DIR"' EXIT
 python3 - "$CHECK_DIR/PlayerPresentation.swift" <<'PY'
@@ -25,13 +36,38 @@ echo "AVFoundation presentation channel typecheck passed"
 NATIVE_ROOT="$PWD/third_party/video_player_avfoundation/darwin/video_player_avfoundation/Sources"
 HEADER="$NATIVE_ROOT/video_player_avfoundation_objc/include/video_player_avfoundation_objc/FVPNativeVideoView.h"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+# Compile the actual player wiring for the minimum supported iOS target, then
+# run the platform-independent AVFoundation policy checks on the macOS host.
+for source in FVPVideoPlayer FVPLumeBuffering; do
+  xcrun clang -fobjc-arc -fmodules -isysroot "$SDK" \
+    -target arm64-apple-ios18.0-simulator -F "$FRAMEWORKS" \
+    -c "$NATIVE_ROOT/video_player_avfoundation_objc/$source.m" \
+    -o "$CHECK_DIR/$source.o"
+done
+xcrun clang -fobjc-arc -fmodules -framework Foundation -framework AVFoundation \
+  -framework CoreMedia -I "$NATIVE_ROOT/video_player_avfoundation_objc" \
+  tool/avplayer_buffer_resume_smoke.m \
+  "$NATIVE_ROOT/video_player_avfoundation_objc/FVPLumeBuffering.m" \
+  -o "$CHECK_DIR/avplayer-buffer-resume"
+"$CHECK_DIR/avplayer-buffer-resume"
 xcrun clang -fobjc-arc -fmodules -isysroot "$SDK" \
   -target arm64-apple-ios18.0-simulator -F "$FRAMEWORKS" \
   -c "$NATIVE_ROOT/video_player_avfoundation_ios/FVPNativeVideoView.m" \
   -o "$CHECK_DIR/InlineVideoView.o"
+xcrun clang -fobjc-arc -fmodules -isysroot "$SDK" \
+  -target arm64-apple-ios18.0-simulator -F "$FRAMEWORKS" \
+  -c "$NATIVE_ROOT/video_player_avfoundation_objc/FVPTextureBasedVideoPlayer.m" \
+  -o "$CHECK_DIR/TexturePlayer.o"
+cat > "$CHECK_DIR/PlayerViews.h" <<HEADERS
+#import "$HEADER"
+#import "$(dirname "$HEADER")/FVPTextureBasedVideoPlayer.h"
+HEADERS
 cat > "$CHECK_DIR/InlineLayer.swift" <<'SWIFT'
 import AVFoundation
 import Flutter
+func readTextureState(_ texture: FVPTextureBasedVideoPlayer) -> [String: Bool] {
+  ["attached": texture.textureSampled, "readyForDisplay": texture.textureFrameReady]
+}
 func prepareInlinePip(_ player: AVPlayer) {
   let layer = FVPNativeVideoView.layer(for: player)
   NotificationCenter.default.post(name: Notification.Name("LumeBox.avplayer.pip"),
@@ -40,6 +76,6 @@ func prepareInlinePip(_ player: AVPlayer) {
 }
 SWIFT
 xcrun swiftc -typecheck -sdk "$SDK" -target arm64-apple-ios18.0-simulator \
-  -F "$FRAMEWORKS" -import-objc-header "$HEADER" \
+  -F "$FRAMEWORKS" -import-objc-header "$CHECK_DIR/PlayerViews.h" \
   "$CHECK_DIR/InlineLayer.swift" ios/Runner/PipController.swift ios/Runner/PipFramePump.swift
 echo "AVPlayer inline layer Objective-C and PiP Swift checks passed (iOS 18)"

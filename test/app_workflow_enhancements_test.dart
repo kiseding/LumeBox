@@ -90,6 +90,53 @@ void main() {
       isEmpty,
     );
   });
+  test('跨源续播只将小数集进度转移到同一小数集', () {
+    const request = VideoResumeRequest(
+      title: '演示', chapterTitle: 'S01E03.5', chapterIndex: 3,
+      position: Duration(minutes: 8), duration: Duration(minutes: 20),
+    );
+    const chapters = [
+      SourceChapter(id: 'full', title: '第一季 第3集'),
+      SourceChapter(id: 'special', title: '第一季 第3.5话'),
+      SourceChapter(id: 'otherSeason', title: '第二季 第3.5集'),
+    ];
+    expect(request.candidates(chapters).map((c) => c.id), ['special']);
+    expect(chapters.where(request.confident).map((c) => c.id), ['special']);
+  });
+  test('跨源续播季数信息不全需要确认，特别篇同名不能覆盖季数冲突', () {
+    VideoResumeRequest saved(String work, String episode) => VideoResumeRequest(
+      title: work, chapterTitle: episode, chapterIndex: 0,
+      position: const Duration(minutes: 8), duration: const Duration(minutes: 20),
+    );
+    const third = SourceChapter(id: '3', title: '第3集');
+    const special = SourceChapter(id: 'sp', title: '特别篇');
+    final unknown = saved('演示', '第3集');
+    expect(unknown.candidates([third], workTitle: '演示 第二季'), [third]);
+    expect(unknown.confident(third, workTitle: '演示 第二季'), isFalse);
+    final second = saved('演示 第二季', '特别篇');
+    expect(second.candidates([special], workTitle: '演示 第一季'), isEmpty);
+    expect(second.confident(special, workTitle: '演示 第一季'), isFalse);
+    expect(second.candidates([special], workTitle: '演示'), [special]);
+    expect(second.confident(special, workTitle: '演示'), isFalse);
+    expect(second.confident(special, workTitle: '演示 Season 2'), isTrue);
+  });
+  test('跨源续播上篇不会把进度转移给下篇、预告或完整集', () {
+    const request = VideoResumeRequest(
+      title: '演示',
+      chapterTitle: '第3集（上）',
+      chapterIndex: 2,
+      position: Duration(minutes: 11),
+      duration: Duration(minutes: 20),
+    );
+    const chapters = [
+      SourceChapter(id: 'bottom', title: '第3集（下）'),
+      SourceChapter(id: 'trailer', title: '第3集预告'),
+      SourceChapter(id: 'whole', title: 'S01E03'),
+      SourceChapter(id: 'top', title: '第03集 上'),
+    ];
+    expect(request.candidates(chapters).map((c) => c.id), ['top']);
+    expect(chapters.where(request.confident).map((c) => c.id), ['top']);
+  });
   test('同名搜索保留年份和季数边界，按更新集数排序，不丢失来源', () {
     SearchHit hit(String source, String title, String sub) => SearchHit(
       sourceId: source,

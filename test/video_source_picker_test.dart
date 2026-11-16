@@ -65,6 +65,7 @@ void main() {
       sources: const [
         SourceDescriptor(
           id: 'ordinary',
+          contentCategory: 'movie',
           name: '普通视频长名称测试',
           version: '1.0',
           enabled: true,
@@ -148,6 +149,83 @@ void main() {
     }
   }
 
+  for (final cat in [false, true]) {
+    for (final selectedIndex in [0, 999]) {
+      testWidgets(
+        '${cat ? "猫源订阅" : "普通视频源"}千条列表只构建可见卡片，定位 $selectedIndex 并支持搜索',
+        (tester) async {
+          if (cat) {
+            service.subscriptions.clear();
+            service.subscriptions.add(
+              CatSubscription(
+                id: 'large',
+                name: '千条订阅',
+                url: 'https://example.test/large',
+                sites: [
+                  for (var i = 0; i < 1000; i++)
+                    CatSite(
+                      subscriptionId: 'large',
+                      key: 'entry-$i',
+                      name: '测试站点$i',
+                      api: '/$i',
+                    ),
+                ],
+              ),
+            );
+          } else {
+            manager.sources.clear();
+            manager.sources.addAll([
+              for (var i = 0; i < 1000; i++)
+                SourceDescriptor(
+                  id: 'entry-$i',
+                  name: '测试站点$i',
+                  version: '1',
+                  enabled: true,
+                ),
+            ]);
+            manager.selected = 'entry-$selectedIndex';
+          }
+          final selected = cat
+              ? service.subscriptions.single.sites[selectedIndex].id
+              : manager.selected!;
+          await pump(
+            tester,
+            keepInitialType: true,
+            showingCat: cat,
+            currentCatId: cat ? selected : null,
+          );
+          expect(find.byType(SourcePickerCard).evaluate().length, lessThan(40));
+          final card = find.byKey(ValueKey('video-picker-source-$selected'));
+          expect(card, findsOneWidget);
+          expect(
+            tester.getTopLeft(card).dy,
+            closeTo(
+              tester.getTopLeft(find.byType(SourcePickerScrollList)).dy,
+              1,
+            ),
+          );
+          expect(manager.openedIds, isEmpty);
+          expect(manager.selectedIds, isEmpty);
+          if (find.byType(TextField).evaluate().isEmpty) {
+            await tester.tap(find.byTooltip('搜索源'));
+            await tester.pumpAndSettle();
+          }
+          await tester.enterText(find.byType(TextField), '测试站点555');
+          await tester.pumpAndSettle();
+          expect(
+            find.descendant(
+              of: find.byType(SourcePickerCard),
+              matching: find.text('测试站点555'),
+            ),
+            findsOneWidget,
+          );
+          expect(find.byType(SourcePickerCard), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   testWidgets('视频源类型开关隐藏对应页签和全部分组，不删除站点', (tester) async {
     final visibility = SourceContentVisibility.instance;
     manager.sources.add(
@@ -200,6 +278,7 @@ void main() {
       find.byKey(const ValueKey('video-source-type-ordinary')),
       findsNothing,
     );
+    expect(find.byKey(const ValueKey('video-source-type-video')), findsNothing);
     expect(find.text('普通视频长名称测试'), findsNothing);
     expect(find.text('PY测试源'), findsOneWidget);
   });
@@ -298,7 +377,7 @@ void main() {
         manager.selected = '$runtime-99';
         final order = manager.sources.map((source) => source.id).toList();
         await pump(tester, keepInitialType: true);
-        final kind = runtime == 'javascript' ? 'ordinary' : runtime;
+        final kind = runtime == 'javascript' ? 'video' : runtime;
         expect(
           tester
               .widget<ChoiceChip>(
@@ -334,6 +413,10 @@ void main() {
           ),
         );
         expect(scrollable.position.pixels, 0);
+        if (find.byType(TextField).evaluate().isEmpty) {
+          await tester.tap(find.byTooltip('搜索源'));
+          await tester.pumpAndSettle();
+        }
         await tester.enterText(find.byType(TextField), '普通视频长名称测试');
         await tester.pumpAndSettle();
         expect(
@@ -649,7 +732,7 @@ void main() {
     expect(
       tester
           .widget<ChoiceChip>(
-            find.byKey(const ValueKey('video-source-type-cat')),
+            find.byKey(const ValueKey('video-source-type-video')),
           )
           .selected,
       isTrue,
@@ -768,9 +851,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('普通视频长名称测试'), findsNothing);
     expect(find.text('猫源测试长名称站点'), findsOneWidget);
+    if (find.byType(TextField).evaluate().isEmpty) {
+      await tester.tap(find.byTooltip('搜索源'));
+      await tester.pumpAndSettle();
+    }
     await tester.enterText(find.byType(TextField), '牛二');
     await tester.pumpAndSettle();
     expect(find.text('另一个站点'), findsOneWidget);
+    if (find.byType(TextField).evaluate().isEmpty) {
+      await tester.tap(find.byTooltip('搜索源'));
+      await tester.pumpAndSettle();
+    }
     await tester.enterText(find.byType(TextField), '不存在');
     await tester.pumpAndSettle();
     expect(find.text('没有匹配的源'), findsOneWidget);
@@ -795,6 +886,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('video-source-type-web')));
     await tester.pumpAndSettle();
+    if (find.byType(TextField).evaluate().isEmpty) {
+      await tester.tap(find.byTooltip('搜索源'));
+      await tester.pumpAndSettle();
+    }
     await tester.enterText(find.byType(TextField), '排序');
     await tester.pumpAndSettle();
     final from = find.byKey(const ValueKey('web-picker-drag-last'));
@@ -927,7 +1022,13 @@ void main() {
   testWidgets('JS源卡片支持双行名称，保留33图标、14留白、8列距和5行距', (tester) async {
     manager.sources.addAll([
       for (final id in ['b', 'c', 'd'])
-        SourceDescriptor(id: id, name: '视频源$id', version: '1.0', enabled: true),
+        SourceDescriptor(
+          id: id,
+          name: '视频源$id',
+          version: '1.0',
+          enabled: true,
+          contentCategory: 'movie',
+        ),
     ]);
     await pump(tester, width: 390);
     final a = find.byKey(const ValueKey('video-picker-source-ordinary'));

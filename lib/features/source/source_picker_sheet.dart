@@ -1,3 +1,4 @@
+import '../../shared/widgets/source_picker_group_heading.dart';
 import '../../shared/widgets/source_type_swipe.dart';
 import 'source_entry_order_sheet.dart';
 import '../../shared/widgets/native_glass_surfaces.dart';
@@ -531,7 +532,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                                 ? (grouped[group.$1]!.length + 1) ~/ 2
                                 : grouped[group.$1]!.length) *
                             rowHeight +
-                        60,
+                        SourcePickerGroupHeading.extent,
                   ) +
               (columns ? currentIndex ~/ 2 : currentIndex) * rowHeight);
     final rows = <WidgetBuilder>[];
@@ -539,16 +540,12 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
       final entries = grouped[group.$1]!;
       if (entries.isEmpty) continue;
       rows.add(
-        (context) => Semantics(
-          header: true,
-          child: Padding(
-            key: ValueKey('picker-group-${group.$1}'),
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-            child: Text(
-              group.$2,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
+        (context) => Padding(
+          key: ValueKey('picker-group-${group.$1}'),
+          padding: const EdgeInsets.symmetric(
+            horizontal: SourceCardMetrics.horizontalPadding,
           ),
+          child: SourcePickerGroupHeading(title: group.$2),
         ),
       );
       for (var i = 0; i < entries.length; i += columns ? 2 : 1) {
@@ -582,7 +579,6 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
           ),
         );
       }
-      rows.add((_) => const SizedBox(height: 8));
     }
     final singleList = visible.isEmpty
         ? Center(child: Text(query.isEmpty ? '暂无源' : '没有匹配的源'))
@@ -684,7 +680,7 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
               if (widget.section == Section.comic)
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     children: [
                       for (final group in [
@@ -694,17 +690,19 @@ class _SourcePickerSheetState extends State<SourcePickerSheet> {
                         ),
                       ])
                         Padding(
-                          padding: const EdgeInsets.only(right: 6),
+                          padding: const EdgeInsets.only(right: 8),
                           child: ChoiceChip(
                             key: _typeKeys.putIfAbsent(group.$1, GlobalKey.new),
                             label: Text(group.$2),
                             selected: contentGroup == group.$1,
+                            showCheckmark: false,
                             onSelected: (_) => _chooseGroup(group.$1),
                           ),
                         ),
                     ],
                   ),
                 ),
+              const SizedBox(height: SourcePickerGroupHeading.listGap),
               Expanded(
                 child: widget.section == Section.comic
                     ? SourceTypeSwipe(

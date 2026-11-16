@@ -2,6 +2,7 @@ import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/core/tmdb/tmdb.dart';
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -17,12 +18,14 @@ import 'package:lume_box/features/cat/cat_detail_page.dart';
 class FixtureCat extends CatDataSource {
   FixtureCat(super.service, super.site, {super.chapterFlag});
   int parses = 0;
+  Completer<VideoContent>? pending;
   @override
   Future<ChapterContent?> content({
     required String itemId,
     required String chapterId,
   }) async {
     parses++;
+    if (pending case final gate?) return gate.future;
     throw const SourceException(SourceErrorKind.network, 'fixture播放解析失败');
   }
 
@@ -122,6 +125,70 @@ void main() {
     expect(find.byType(VideoPlayerPage), findsNothing);
     expect(find.textContaining('fixture播放解析失败'), findsOneWidget);
   });
+
+  testWidgets('猫源详情退出时不打开刚解析完成的视频', (tester) async {
+    final nav = GlobalKey<NavigatorState>();
+    final pending = source.pending = Completer<VideoContent>();
+    final item = source.item(await source.rawDetail('movie'))!;
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: nav, home: const Scaffold(body: Text('列表')),
+    ));
+    nav.currentState!.push(MaterialPageRoute<void>(builder: (_) =>
+        CatDetailPage(source: source, item: item, library: library)));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(CatDetailPage));
+    state.play(0);
+    expect(source.parses, 1);
+    nav.currentState!.pop();
+    expect(state.mounted, isTrue);
+    pending.complete(VideoContent(url: Uri.parse('https://fixture.test/video.mp4')));
+    await tester.pumpAndSettle();
+    expect(find.byType(VideoPlayerPage), findsNothing);
+    expect(find.text('列表'), findsOneWidget);
+  });
+
+  for (final mode in ['earlyExit', 'private', 'switchedLine']) {
+    testWidgets('猫源播放返回后按本次观看更新剧集与线路（$mode）', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final all = await source.chapters('movie');
+      final item = source.item(await source.rawDetail('movie'))!;
+      final other = CatDataSource.episodeLines(all)['UC原画']![1];
+      void save(SourceChapter chapter, int index) {
+        library.saveProgress(VideoProgress(
+          section: Section.cat, sourceId: source.id, itemId: item.id,
+          chapterId: chapter.id, chapterIndex: index, chapterTitle: chapter.title,
+          position: const Duration(seconds: 20), duration: const Duration(minutes: 12),
+          updatedAt: DateTime.now(),
+        ));
+      }
+      save(all.first, 0);
+      if (mode == 'private') library.setSetting('history.incognito', 'true');
+      source.pending = Completer<VideoContent>()
+        ..complete(VideoContent(url: Uri.parse('https://fixture.test/video.mp4')));
+      await tester.pumpWidget(MaterialApp(
+        home: CatDetailPage(source: source, item: item, library: library),
+      ));
+      await tester.pumpAndSettle();
+      final episode = find.widgetWithText(OutlinedButton, '第2集');
+      await tester.ensureVisible(episode);
+      await tester.tap(episode);
+      await tester.pumpAndSettle();
+      final player = find.byType(VideoPlayerPage);
+      final page = tester.widget<VideoPlayerPage>(player);
+      expect(page.target?.chapterId, all[1].id);
+      final reopened = await page.sourceManager!.open(source.id) as CatDataSource;
+      expect(reopened.chapterFlag, isNull, reason: '播放器需要完整目录才能切换线路');
+      if (mode == 'switchedLine') save(other, 1);
+      Navigator.of(tester.element(player)).pop();
+      await tester.pumpAndSettle();
+      final dynamic detail = tester.state(find.byType(CatDetailPage));
+      expect(detail.selectedChapterId, mode == 'switchedLine' ? other.id : all[1].id);
+      expect(detail.line, mode == 'switchedLine' ? 'UC原画' : '夸克原画');
+      expect(find.widgetWithText(FilledButton,
+          mode == 'switchedLine' ? '继续播放 · 第2集' : '播放 · 第2集'), findsOneWidget);
+    });
+  }
 
   for (final width in [320.0, 390.0]) {
     testWidgets('猫源详情$width宽按线路显示与完整选集，简介可收起', (tester) async {

@@ -1,10 +1,13 @@
 import 'playback_presentation.dart';
+import 'hls_variants.dart';
+import 'hls_attributes.dart';
 
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import '../net/lume_http.dart';
+import '../net/http_header_scope.dart';
 import '../net/network_settings.dart';
 
 /// Select the highest HLS rendition before opening the native player.
@@ -23,45 +26,33 @@ class HighestHls {
   }) {
     final lines = text.split('\n').map((line) => line.trim()).toList();
     final variants =
-        <({int index, int height, int bandwidth, bool hdr, bool dolby})>[];
-    for (var i = 0; i + 1 < lines.length; i++) {
-      if (!lines[i].startsWith('#EXT-X-STREAM-INF:')) continue;
-      final height =
-          int.tryParse(
-            RegExp(r'RESOLUTION=\d+x(\d+)').firstMatch(lines[i])?.group(1) ??
-                '',
-          ) ??
-          0;
-      final bandwidth =
-          int.tryParse(
-            RegExp(r'(?:^|[:,])BANDWIDTH=(\d+)')
-                    .firstMatch(lines[i])
-                    ?.group(1) ??
-                '',
-          ) ??
-          0;
-      if (lines[i + 1].isNotEmpty && !lines[i + 1].startsWith('#')) {
-        final dolby = RegExp(
-          r'(?:dvh1|dvhe)',
-          caseSensitive: false,
-        ).hasMatch(lines[i]);
-        final hdr =
-            dolby ||
-            RegExp(
-              r'VIDEO-RANGE=(PQ|HLG)',
-              caseSensitive: false,
-            ).hasMatch(lines[i]);
-        variants.add((
-          index: i,
-          height: height,
-          bandwidth: bandwidth,
-          hdr: hdr,
-          dolby: dolby,
-        ));
-      }
+        <({int index, HlsVariantQuality quality, bool hdr, bool dolby, bool? hasVideo})>[];
+    final pairs = hlsVariants(lines).toList();
+    for (final pair in pairs) {
+      final i = pair.tag;
+      final attributes = hlsRawAttributes(lines[i]);
+      final dolby = RegExp(
+        r'(?:dvh1|dvhe)',
+        caseSensitive: false,
+      ).hasMatch(lines[i]);
+      final hdr =
+          dolby ||
+          RegExp(
+            r'VIDEO-RANGE=(PQ|HLG)',
+            caseSensitive: false,
+          ).hasMatch(lines[i]);
+      variants.add((
+        index: i,
+        quality: hlsVariantQuality(attributes),
+        hdr: hdr,
+        dolby: dolby,
+        hasVideo: hlsVariantHasVideo(attributes),
+      ));
     }
     if (variants.length < 2) return null;
-    final indices = variants.map((v) => v.index).toSet();
+    if (variants.any((v) => v.hasVideo != false)) {
+      variants.removeWhere((v) => v.hasVideo == false);
+    }
     final p = presentation;
     if (p != null) {
       // Prefer compatible alternatives, but retain single-format streams for tone mapping.
@@ -82,27 +73,26 @@ class HighestHls {
       if (p != null &&
           p.wantsHdr &&
           p.dolbyVision &&
-          a.height == b.height &&
+          a.quality.height == b.quality.height &&
           a.dolby != b.dolby) {
         return a.dolby ? -1 : 1;
       }
-      final resolution = b.height.compareTo(a.height);
-      return resolution != 0 ? resolution : b.bandwidth.compareTo(a.bandwidth);
+      return compareHlsQuality(a.quality, b.quality);
     });
     final selected = variants.first.index;
+    final excluded = {
+      for (final pair in pairs)
+        if (pair.tag != selected) ...[pair.tag, pair.uri],
+    };
     final result = <String>[];
     for (var i = 0; i < lines.length; i++) {
-      if (indices.contains(i) && i != selected) {
-        i++;
-        continue;
-      }
+      if (excluded.contains(i)) continue;
       var line = lines[i];
       if (line.startsWith('#EXT-X-I-FRAME-STREAM-INF:')) continue;
       if (line.startsWith('#')) {
-        line = line.replaceAllMapped(
-          RegExp(r'URI="([^"]+)"'),
-          (match) => 'URI="${base.resolve(match[1]!)}"',
-        );
+        for (final ref in hlsUriAttributes(line).toList().reversed) {
+          line = line.replaceRange(ref.start, ref.end, base.resolve(ref.value).toString());
+        }
       } else if (line.isNotEmpty) {
         line = base.resolve(line).toString();
       }
@@ -208,11 +198,13 @@ class HighestHls {
 
   static bool? manifestIsPortrait(String manifest) {
     bool? portrait;
-    final resolution = RegExp(r'(?:[:,])RESOLUTION=(\d+)x(\d+)(?:,|$)');
+    final resolution = RegExp(r'^(\d+)x(\d+)$');
     for (final raw in manifest.split('\n')) {
       final line = raw.trim();
       if (!line.startsWith('#EXT-X-STREAM-INF:')) continue;
-      final size = resolution.firstMatch(line);
+      final attributes = hlsRawAttributes(line);
+      if (hlsVariantHasVideo(attributes) == false) continue;
+      final size = resolution.firstMatch(attributes['RESOLUTION'] ?? '');
       final width = int.tryParse(size?.group(1) ?? '');
       final height = int.tryParse(size?.group(2) ?? '');
       if (width == null || height == null || width <= 0 || height <= 0) {
@@ -258,9 +250,7 @@ class HighestHls {
         final next = base.resolve(location);
         if (!['http', 'https'].contains(next.scheme)) return null;
         if (next.origin != base.origin) {
-          requestHeaders.removeWhere(
-            (key, _) => ['cookie', 'authorization'].contains(key.toLowerCase()),
-          );
+          requestHeaders.removeWhere((key, _) => isOriginBoundHttpHeader(key));
         }
         base = next;
       }

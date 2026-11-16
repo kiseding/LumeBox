@@ -49,19 +49,20 @@ void main() {
     final exited = await session.exit();
     expect(exited.isAccepted, isTrue);
     expect(backend.stopped, 1);
-    expect(session.state, PipState.idle);
+    expect(session.state, PipState.exiting);
+    expect((await session.enter()).isAccepted, isFalse);
 
-    // 原生随后补发 exited 也接受（幂等，不改变状态）。
+    // The source remains owned by AVKit until its stop animation completes.
     backend.emit(PipEventKind.exited);
     await settle();
     expect(session.state, PipState.idle);
-    expect(
-      events.map((event) => event.kind),
-      <PipEventKind>[PipEventKind.entered, PipEventKind.exited],
-    );
+    expect(events.map((event) => event.kind), <PipEventKind>[
+      PipEventKind.entered,
+      PipEventKind.exited,
+    ]);
   });
 
-  test('用户从画中画窗口返回：restored 事件回到未开启', () async {
+  test('用户从画中画窗口返回：等待 exited 再释放内容源', () async {
     final backend = _FakePipBackend();
     addTearDown(backend.close);
     final events = <PipEvent>[];
@@ -76,8 +77,12 @@ void main() {
 
     backend.emit(PipEventKind.restored);
     await settle();
-    expect(session.state, PipState.idle);
+    expect(session.state, PipState.exiting);
     expect(events.last.kind, PipEventKind.restored);
+    expect((await session.enter()).isAccepted, isFalse);
+    backend.emit(PipEventKind.exited);
+    await settle();
+    expect(session.state, PipState.idle);
   });
 
   test('就绪边界：媒体未就绪拒绝进入，就绪后可进入', () async {

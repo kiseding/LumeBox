@@ -1,6 +1,6 @@
-part of 'video_player_page.dart';
+part of 'classic_video_player_page.dart';
 
-extension _OriginalIntro on _VideoPlayerPageState {
+extension _OriginalIntro on _ClassicVideoPlayerPageState {
   void _onOriginalIntroChanged() => _refresh(() {});
 
   void _syncOriginalIntro(PlayerSnapshot snapshot) {

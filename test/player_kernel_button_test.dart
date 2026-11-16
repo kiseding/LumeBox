@@ -14,7 +14,7 @@ class _Catalog implements PlayerKernelCatalog {
 }
 
 void main() {
-  testWidgets('内核使用倍速同宽竖向小菜单，禁用不可用项，选择后关闭', (tester) async {
+  testWidgets('内核使用紧凑竖向胶囊，禁用不可用项，选择后关闭', (tester) async {
     PlayerKernel? selected;
     await tester.pumpWidget(
       MaterialApp(
@@ -39,14 +39,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester.getSize(find.byKey(const Key('player-kernel-menu'))).width,
-      128,
+      88,
     );
-    expect(
-      tester
-          .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'MDK'))
-          .onSelected,
-      isNull,
-    );
+    expect(find.text('MDK'), findsNothing);
+    expect(find.text('AET'), findsOneWidget);
+    expect(find.text('AVP'), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const Key('player-kernel-menu'))).height,
       lessThanOrEqualTo(160),

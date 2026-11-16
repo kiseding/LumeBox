@@ -8,6 +8,7 @@ import 'package:lume_box/features/video/danmaku/danmaku_settings.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_sources_page.dart';
 import 'package:lume_box/features/video/player_settings_page.dart';
 import 'package:lume_box/shared/widgets/glass_card.dart';
+import 'package:lume_box/shared/widgets/native_glass_controls.dart';
 
 /// 播放器设置页的验证：内核选择（未接入项不可选并给出原因）、倍速档位、
 /// 字幕开关与字号。页面是受控组件，断言落在「回调收到了什么设置」上。
@@ -93,6 +94,46 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('竖屏切集与其他手势开关左右对齐，默认开启且可关闭', (tester) async {
+    PlayerSettings? changed;
+    await pumpPage(
+      tester,
+      settings: const PlayerSettings(),
+      catalog: _FakeCatalog({PlayerKernel.avplayer}),
+      onChanged: (value) => changed = value,
+      category: 'controls',
+    );
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    await tester.pumpAndSettle();
+    double? right, left;
+    for (final label in [
+      '启用播放器手势',
+      '竖屏短剧上下滑切集',
+      '左侧上下滑调亮度',
+      '右侧上下滑调音量',
+      '横向滑动调进度',
+      '长按临时倍速',
+    ]) {
+      final row = find.widgetWithText(NativeSwitchListTile, label);
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      final toggle = find.descendant(of: row, matching: find.byType(Switch));
+      final edge = tester.getRect(toggle).right;
+      final titleLeft = tester.getRect(find.text(label)).left;
+      right ??= edge;
+      left ??= titleLeft;
+      expect(edge, closeTo(right, .1));
+      expect(titleLeft, closeTo(left, .1));
+    }
+    final swipe = find.widgetWithText(NativeSwitchListTile, '竖屏短剧上下滑切集');
+    expect(tester.widget<NativeSwitchListTile>(swipe).value, isTrue);
+    await tester.ensureVisible(swipe);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('竖屏短剧上下滑切集'));
+    expect(changed?.swipeUpNext, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('全局弹幕服务铺满页面并在同一页切换弹幕设置', (tester) async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -155,12 +196,13 @@ void main() {
       tester.widget<GlassCard>(decodingCard).radius,
     );
     expect(find.text('MPV 内核尚未接入'), findsOneWidget);
-    expect(find.text('MDK 内核尚未接入'), findsOneWidget);
+    expect(find.text('AetherEngine 内核尚未接入'), findsOneWidget);
+    expect(find.text('MDK'), findsNothing);
     // 只有当前内核打勾。
     expect(find.byIcon(Icons.check_circle), findsOneWidget);
 
     // 未接入的内核点击无效。
-    await tester.tap(find.text('MDK'));
+    await tester.tap(find.text('AetherEngine'));
     await tester.pumpAndSettle();
     expect(changed, isNull);
   });

@@ -2,7 +2,6 @@ import '../../core/js/source_registry.dart';
 import '../../core/cache/section_memory_cache.dart';
 import '../../core/net/lume_net.dart';
 import '../../core/net/network_cancellation.dart';
-import '../../shared/widgets/native_glass_surfaces.dart';
 import '../../shared/widgets/native_glass_preview.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -42,8 +41,11 @@ import 'shell_dock_bar.dart';
 import 'system_dock_bar.dart';
 import '../../core/source/source_subscription_sync.dart';
 import '../../shared/widgets/dock_handle_button.dart';
+import '../../core/music/music_session.dart';
+import '../music/music_page.dart';
+import '../../shared/widgets/native_glass_surfaces.dart';
 
-/// 主导航：漫画 / 视频 / 设置与同一胶囊内的搜索入口。
+/// 主导航：漫画 / 视频 / 音乐 / 设置，同一底部胶囊的最右侧搜索当前板块。
 ///
 /// 移动端是底部悬浮 Dock（毛玻璃胶囊）；桌面端（Windows / macOS / Linux）
 /// 自动换成左侧 NavigationRail —— 同一套页签，两种排布，页签内容不变。
@@ -201,6 +203,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       builder: () => const VideoSourceHub(),
     ),
     _ShellTab(
+      id: 'music',
+      label: '音乐',
+      icon: Icons.music_note_outlined,
+      selectedIcon: Icons.music_note_rounded,
+      builder: () => const MusicPage(),
+    ),
+    _ShellTab(
       id: ShellTab.settingsId,
       label: '设置',
       icon: Icons.settings_outlined,
@@ -258,6 +267,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    MusicSession.visible.addListener(_onMusicVisibilityChanged);
     unawaited(_loadSystemNavigation());
     _controller.addListener(_onDockVisibilityChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -308,6 +318,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    MusicSession.visible.removeListener(_onMusicVisibilityChanged);
     _controller.removeListener(_onDockVisibilityChanged);
     _subscriptionTimer?.cancel();
     _subscriptionStartupTimer?.cancel();
@@ -476,6 +487,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _controller.requestSearch();
   }
 
+  void _onMusicVisibilityChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _warmUp(String id) async {
     final section = sectionFromId(id);
     if (section == null) return;
@@ -571,7 +586,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       child: ShellDockScope(
         controller: _controller,
         collapsed: _scrollCollapsed,
-        dockInset: dockInset,
+        dockInset: dockInset + (!rail && MusicSession.visible.value ? 76 : 0),
         dockBottom: _navigationBottom(context),
         navigationHeight: _navigationHeight,
         usesSystemNavigation: _usesSystemNavigation,
@@ -588,7 +603,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               )
             : null,
         safePadding: MediaQuery.viewPaddingOf(context),
-        integratedSearch: !rail,
+        integratedSearch: true,
         child: rail ? _buildRail() : _buildDock(),
       ),
     );
@@ -704,6 +719,33 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             },
             child: _buildPage(),
           ),
+          if (MusicSession.visible.value &&
+              _controller.visible &&
+              MediaQuery.viewInsetsOf(context).bottom == 0)
+            Positioned(
+              left: MediaQuery.viewPaddingOf(context).left,
+              right: MediaQuery.viewPaddingOf(context).right,
+              bottom: _navigationBottom(context) + _navigationHeight + 8,
+              child: Builder(
+                builder: (context) {
+                  final layout = _dockAppearance.layoutFor(
+                    MediaQuery.sizeOf(context).width -
+                        MediaQuery.viewPaddingOf(context).horizontal,
+                  );
+                  final margin = ShellDockScope.maybeScopeOf(context)
+                      ?.navigationMargin;
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      left: margin ?? layout.left,
+                      right: margin ?? layout.right,
+                    ),
+                    child: const MusicMiniPlayer(
+                      key: Key('shell-music-mini-player'),
+                    ),
+                  );
+                },
+              ),
+            ),
           if (settingsHidden)
             // 与底栏同一个显隐来源：Dock 收起（播放中 / 全屏页压栈）时，
             // 恢复入口一并收起。
@@ -850,6 +892,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       body: Row(
         children: <Widget>[
           NavigationRail(
+            trailingAtBottom: true,
+            trailing: IconButton(
+              key: const ValueKey('global-search-button'),
+              tooltip: '搜索当前板块',
+              onPressed: () => unawaited(_searchFromNavigation()),
+              icon: const Icon(Icons.search),
+            ),
             key: AppShell.railKey,
             selectedIndex: activeIndex < 0 ? 0 : activeIndex,
             onDestinationSelected: (index) => _select(tabs[index].id),
@@ -870,7 +919,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             ],
           ),
           const VerticalDivider(width: 1),
-          Expanded(child: _buildPage()),
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(child: _buildPage()),
+                if (MusicSession.visible.value) const MusicMiniPlayer(),
+              ],
+            ),
+          ),
         ],
       ),
     );

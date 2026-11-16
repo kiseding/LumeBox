@@ -20,6 +20,23 @@ class FrostedSettings extends ChangeNotifier {
   bool get frostedEnabled => _frostedEnabled;
   final Map<String, LiquidGlassStyle> _styles = {};
   bool lightweight = false;
+  bool playerNative = false;
+  static const defaultPlayerGlassShade = .12;
+  double _playerGlassShade = defaultPlayerGlassShade;
+  double get playerGlassShade => _playerGlassShade;
+  Future<void> setPlayerGlassShade(double value, {bool persist = true}) {
+    if (!value.isFinite) return Future<void>.value();
+    _playerGlassShade = value.clamp(0, .5);
+    notifyListeners();
+    return persist ? save() : Future<void>.value();
+  }
+
+  Future<void> setPlayerNative(bool value) {
+    playerNative = value;
+    notifyListeners();
+    return save();
+  }
+
   bool _nativePreview = false;
   bool get nativePreview => _nativePreview;
 
@@ -87,6 +104,8 @@ class FrostedSettings extends ChangeNotifier {
     reduceTransparency = false;
     lightweight = false;
     _nativePreview = false;
+    playerNative = false;
+    _playerGlassShade = defaultPlayerGlassShade;
     native = const NativeGlassStyle();
     try {
       final base = directory ?? await getApplicationSupportDirectory();
@@ -100,6 +119,11 @@ class FrostedSettings extends ChangeNotifier {
           reduceTransparency = data['reduceTransparency'] == true;
           lightweight = data['lightweight'] == true;
           _nativePreview = data['nativePreview'] == true;
+          playerNative = data['playerNative'] == true;
+          final shade = data['playerGlassShade'];
+          if (shade is num && shade.isFinite) {
+            _playerGlassShade = shade.toDouble().clamp(0, .5);
+          }
           if (data['native'] is Map) {
             native = NativeGlassStyle.fromJson(data['native'] as Map);
           }
@@ -140,6 +164,8 @@ class FrostedSettings extends ChangeNotifier {
       'reduceTransparency': _reduceTransparency,
       'lightweight': lightweight,
       'nativePreview': _nativePreview,
+      'playerNative': playerNative,
+      'playerGlassShade': playerGlassShade,
       'native': native.toJson(),
       'styles': {for (final e in _styles.entries) e.key: e.value.toJson()},
     });

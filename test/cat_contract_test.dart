@@ -7,7 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/cat/cat_service.dart';
 import 'package:lume_box/core/cat/cat_data_source.dart';
+import 'package:lume_box/core/media/media_library.dart';
+import 'package:lume_box/core/media/media_resource_service.dart';
+import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/cat/cat_preloader.dart';
+import 'package:lume_box/core/session/section.dart';
+import 'package:lume_box/features/video/video_download_center.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +27,8 @@ void main() {
   var index = 'module.exports={start:async()=>{}}';
   var advertised = '';
   var failDownload = false;
+  String? playKind;
+  Map<String, dynamic>? playResponse;
   Future<Map<String, dynamic>> bridge(
     String action,
     Map<String, dynamic> opt, {
@@ -52,6 +59,8 @@ void main() {
     starts = 0;
     runtime = null;
     failDownload = false;
+    playKind = null;
+    playResponse = null;
     index = 'module.exports={start:async()=>{}}';
     advertised = md5.convert(utf8.encode(index)).toString();
     remote = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -126,6 +135,17 @@ void main() {
             },
           }),
         );
+      } else if (req.uri.path.endsWith('/play')) {
+        expect(body['id'], 'episode-2');
+        req.response.write(jsonEncode(playResponse ?? {
+          'kind': ?playKind,
+          'url': '/fixture.mp4',
+          'headers': {'Referer': 'https://site.example/watch'},
+        }));
+      } else if (req.uri.path == '/fixture.mp4') {
+        expect(req.headers.value('referer'), 'https://site.example/watch');
+        req.response.headers.contentType = ContentType('video', 'mp4');
+        req.response.add([0, 0, 0, 8, 102, 116, 121, 112]);
       } else if (req.uri.path.endsWith('/category')) {
         expect(body['id'], 'movie');
         expect(body['page'], isA<int>());
@@ -223,6 +243,93 @@ void main() {
     await expectLater(service.importLocal('坏包', Uint8List.fromList(ZipEncoder().encode(archive))),
       throwsFormatException);
     expect(service.subscriptions, isEmpty);
+  });
+
+  test('猫源订阅在媒体库重新取址，并在下载队列重启后按原板块离线播放', () async {
+    await service.closeForTesting();
+    service = CatService.instance;
+    final record = await service.add('下载测试', remoteBase.resolve('/source.js.md5').toString());
+    await service.refreshSites(record);
+    final site = record.sites.single;
+    final item = jsonEncode([site.id, 'show']);
+    final chapters = CatDataSource.parseChapters({
+      'vod_play_from': 'A', 'vod_play_url': r'第2集$episode-2',
+    });
+    final source = CatDataSource(service, site);
+    for (final kind in ['audio', 'AudioBook', 'audio-book', 'video']) {
+      playKind = kind;
+      final content = await source.content(itemId: item, chapterId: chapters.single.id) as VideoContent;
+      expect(content.audioOnly, kind != 'video', reason: kind);
+    }
+    playKind = 'audio';
+    final library = MediaLibrary();
+    await library.boot(directory: root);
+    final resource = await MediaResourceService(library: library).source(
+      source: source, item: SourceItem(id: item, title: '猫源音频'),
+      chapters: chapters, trackInfo: const MediaTrackInfo(),
+    );
+    expect(resource.kind, ResourceKind.audioBook);
+    expect(resource.originSection, Section.cat);
+    final persisted = MediaLibrary();
+    await persisted.boot(directory: root);
+    final saved = persisted.byId(resource.id)!;
+    final track = MediaResourceService(library: persisted).audioTracks(saved).single;
+    final resolved = await track.resolve!();
+    expect(resolved.url, nodeBase.resolve('/fixture.mp4'));
+    expect(resolved.headers['Referer'], 'https://site.example/watch');
+    final queue = VideoDownloadCenter(directory: () async => root);
+    await queue.enqueue(section: Section.cat, sourceId: site.id, itemId: item,
+        title: '猫源下载', chapters: chapters);
+    final task = queue.tasks.single;
+    final finished = Stopwatch()..start();
+    while ((task.state == 'queued' || task.running) && finished.elapsed < const Duration(seconds: 8)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(task.state, 'done', reason: task.error);
+    await queue.flush();
+    final restored = VideoDownloadCenter(directory: () async => root);
+    await restored.boot();
+    expect(restored.tasks.single.section, Section.cat);
+    final playback = await restored.completedPlayback(site.id, item, chapters.single.id, section: Section.cat);
+    expect(await File.fromUri(playback!.uri).readAsBytes(), [0, 0, 0, 8, 102, 116, 121, 112]);
+    expect(await restored.completedPlayback(site.id, item, chapters.single.id), isNull);
+    await playback.close();
+  });
+
+  test('猫源仅返回清晰度列表时使用本地运行端口并保留线路请求头', () async {
+    final record = await service.add('多画质', remoteBase.resolve('/source.js.md5').toString());
+    await service.refreshSites(record);
+    final source = CatDataSource(service, record.sites.single);
+    const chapter = '{"flag":"A","id":"episode-2"}';
+    playResponse = {
+      'kind': 'audio',
+      'levels': [
+        {'url': 'file:///invalid', 'label': '无效'},
+        {'src': '/fixture.mp4', 'label': '720P', 'headers': {'Referer': 'https://site.example/watch'}},
+        {'playUrl': 'http://localhost:1/high.mp4', 'label': '1080P'},
+        {'address': 'https://cdn.test/original', 'label': '原画'},
+      ],
+    };
+    final content = await source.content(itemId: 'show', chapterId: chapter) as VideoContent;
+    expect(content.url, nodeBase.resolve('/fixture.mp4'));
+    expect(content.audioOnly, true);
+    expect(content.qualities.map((q) => q.url), [
+      content.url, nodeBase.resolve('/high.mp4'), Uri.parse('https://cdn.test/original'),
+    ]);
+    expect(content.qualities.first.label, '720P');
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(content.url);
+      MediaResourceService.headers(content).forEach(request.headers.set);
+      final response = await request.close();
+      expect(await response.expand((bytes) => bytes).toList(), [0, 0, 0, 8, 102, 116, 121, 112]);
+    } finally {
+      client.close(force: true);
+    }
+    playResponse!['url'] = '/default.mp4';
+    final direct = await source.content(itemId: 'show', chapterId: chapter) as VideoContent;
+    expect(direct.url, nodeBase.resolve('/default.mp4'));
+    expect(direct.qualities, content.qualities);
   });
 
   test('内置服务安装校验、随机地址、重复启动复用，且不进入猫源订阅表', () async {

@@ -292,7 +292,9 @@ class _WebHomePageState extends State<WebHomePage> {
           index,
           _controller.runJavaScript,
         );
-        if (resolved.shareLink) throw const FormatException('该剧集需要回到网页打开网盘解析');
+        if (resolved.shareLink && !CatMediaSniffer.isMediaUrl(resolved.uri.toString())) {
+          throw const FormatException('该剧集需要回到网页打开网盘解析');
+        }
         return VideoContent(url: resolved.uri, headers: resolved.headers);
       },
     );
@@ -301,7 +303,7 @@ class _WebHomePageState extends State<WebHomePage> {
         builder: (_) => VideoDetailPage(
           source: source,
           item: SourceItem(
-            id: request.itemId.isEmpty ? 'captured-video' : request.itemId,
+            id: DirectVideoSource.captureItemId(request.itemId, request.uri),
             title: request.title,
             cover: request.cover,
           ),
@@ -310,16 +312,25 @@ class _WebHomePageState extends State<WebHomePage> {
               : 'web-episode-${request.selected}',
           library: library,
           recordHistory: false,
-          onPlay: (media, target, qualities, prelaunch) async {
-            await PlaybackFocus.acquire('video');
-            if (!mounted) return;
+          onPlay: (origin, media, target, qualities, prelaunch) async {
+            final context = origin.context;
+            final route = ModalRoute.of(context);
+            await PlaybackFocus.acquire(
+              'video',
+              stillWanted: () => context.mounted && route?.isCurrent != false,
+            );
+            if (!context.mounted || route?.isCurrent == false) {
+              await prelaunch?.discard();
+              return;
+            }
+            final captured = identical(origin.source, source);
             await Navigator.of(context).push<void>(
               MaterialPageRoute(
                 builder: (_) => VideoPlayerPage(
                   media: media,
-                  title: request.title,
-                  source: source,
-                  target: request.episodes.isEmpty ? null : target,
+                  title: target.title,
+                  source: origin.source,
+                  target: captured && request.episodes.isEmpty ? null : target,
                   library: library,
                   qualities: qualities,
                   prelaunch: prelaunch,

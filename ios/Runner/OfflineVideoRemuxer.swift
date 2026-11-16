@@ -50,12 +50,19 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
     return url
   }
 
-  private func attribute(_ name: String, in line: String) -> String? {
-    let pattern = "(?:^|[:,])" + name + "=(?:\"([^\"]*)\"|([^,]*))"
-    guard let regex = try? NSRegularExpression(pattern: pattern),
-          let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) else { return nil }
-    for i in [1, 2] {
-      if let range = Range(match.range(at: i), in: line) { return String(line[range]) }
+  private static let attributePattern = try! NSRegularExpression(
+    pattern: #"(?:^|,)([A-Z0-9-]+)=("[^"]*"|[^,]*)"#
+  )
+
+  private func attribute(_ name: String, in line: String) -> (value: String, range: Range<String.Index>)? {
+    guard line.hasPrefix("#EXT-X-"), let colon = line.firstIndex(of: ":") else { return nil }
+    let body = line.index(after: colon)..<line.endIndex
+    for match in Self.attributePattern.matches(in: line, range: NSRange(body, in: line)) {
+      guard let key = Range(match.range(at: 1), in: line), line[key] == name,
+            let range = Range(match.range(at: 2), in: line) else { continue }
+      let raw = line[range]
+      let value = raw.hasPrefix("\"") && raw.hasSuffix("\"") ? raw.dropFirst().dropLast() : raw
+      return (String(value), range)
     }
     return nil
   }
@@ -101,23 +108,23 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
         sequence = value
       }
       if line.hasPrefix("#EXT-X-KEY:") {
-        let method = attribute("METHOD", in: line)
+        let method = attribute("METHOD", in: line)?.value
         if method == "NONE" { key = nil; explicitIV = nil }
         else {
           guard method == "AES-128", let ref = attribute("URI", in: line),
-                attribute("KEYFORMAT", in: line) == nil || attribute("KEYFORMAT", in: line) == "identity" else {
+                attribute("KEYFORMAT", in: line) == nil || attribute("KEYFORMAT", in: line)?.value == "identity" else {
             throw failure("不支持该视频加密格式")
           }
-          key = try Data(contentsOf: local(ref, relativeTo: playlist, root: root))
+          key = try Data(contentsOf: local(ref.value, relativeTo: playlist, root: root))
           guard key?.count == 16 else { throw failure("AES 密钥无效") }
-          explicitIV = attribute("IV", in: line)
+          explicitIV = attribute("IV", in: line)?.value
         }
         rewritten.append("#EXT-X-KEY:METHOD=NONE")
         continue
       }
       var result = line
       if let ref = attribute("URI", in: line) {
-        let source = try local(ref, relativeTo: playlist, root: root)
+        let source = try local(ref.value, relativeTo: playlist, root: root)
         var destination = source
         if source.pathExtension == "m3u8" {
           destination = try prepare(source, root: root, workspace: workspace, depth: depth + 1)
@@ -125,7 +132,7 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
           guard explicitIV != nil else { throw failure("加密初始化片段缺少 IV") }
           destination = try decrypt(source, key: key, iv: iv(explicitIV, sequence: sequence), workspace: workspace)
         }
-        result = line.replacingOccurrences(of: "URI=\"\(ref)\"", with: "URI=\"\(destination.absoluteString)\"")
+        result.replaceSubrange(ref.range, with: "\"\(destination.absoluteString)\"")
       } else if !line.isEmpty && !line.hasPrefix("#") {
         let source = try local(line, relativeTo: playlist, root: root)
         let destination: URL
@@ -177,7 +184,22 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
     return destination
   }
 
-  private func copyPackets(input: URL, output: URL) throws {
+  // Stream-copy one VOD TS segment on demand. Preserve the original decode
+  // timestamps so fragments requested out of order still share one timeline.
+  func fragment(input: Data, sequence: Int) throws -> Data {
+    guard !input.isEmpty, input.count <= 32 * 1024 * 1024, (1...Int(Int32.max)).contains(sequence) else {
+      throw failure("无效视频分片")
+    }
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let source = dir.appendingPathComponent("input.ts"), output = dir.appendingPathComponent("fragment.mp4")
+    try input.write(to: source)
+    try copyPackets(input: source, output: output, fragmentSequence: sequence)
+    return try Data(contentsOf: output)
+  }
+
+  private func copyPackets(input: URL, output: URL, fragmentSequence: Int? = nil) throws {
     var source: UnsafeMutablePointer<AVFormatContext>?
     var destination: UnsafeMutablePointer<AVFormatContext>?
     var options: OpaquePointer?
@@ -185,7 +207,7 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
     av_dict_set(&options, "allowed_extensions", "ALL", 0)
     av_dict_set(&options, "extension_picky", "0", 0)
     defer { av_dict_free(&options); avformat_close_input(&source) }
-    var code = avformat_open_input(&source, input.path, av_find_input_format("hls"), &options)
+    var code = avformat_open_input(&source, input.path, av_find_input_format(fragmentSequence == nil ? "hls" : "mpegts"), &options)
     guard code >= 0, let context = source else { throw failure("无法打开离线分片", code) }
     code = avformat_find_stream_info(context, nil)
     guard code >= 0 else { throw failure("无法读取视频轨道", code) }
@@ -193,6 +215,13 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
     guard code >= 0, let target = destination else { throw failure("无法创建 MP4", code) }
     defer { avio_closep(&target.pointee.pb); avformat_free_context(target) }
     var mapping = [Int32: Int32](), counts = [Int32: Int]()
+    var aacFilters: [Int32: UnsafeMutablePointer<AVBSFContext>] = [:]
+    defer {
+      for filter in aacFilters.values {
+        var owned: UnsafeMutablePointer<AVBSFContext>? = filter
+        av_bsf_free(&owned)
+      }
+    }
     for index in 0..<Int(context.pointee.nb_streams) {
       guard let stream = context.pointee.streams[index], let parameters = stream.pointee.codecpar else { continue }
       let type = parameters.pointee.codec_type
@@ -201,9 +230,33 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
       code = avcodec_parameters_copy(added.pointee.codecpar, parameters)
       guard code >= 0 else { throw failure("无法保留轨道信息", code) }
       added.pointee.codecpar.pointee.codec_tag = 0
+      if fragmentSequence != nil && parameters.pointee.codec_id == AV_CODEC_ID_HEVC {
+        added.pointee.codecpar.pointee.codec_tag = 0x31637668 // hvc1
+      }
+      if fragmentSequence != nil && parameters.pointee.codec_id == AV_CODEC_ID_AAC {
+        var filter: UnsafeMutablePointer<AVBSFContext>?
+        guard let definition = av_bsf_get_by_name("aac_adtstoasc"),
+              av_bsf_alloc(definition, &filter) >= 0, let bsf = filter else { throw failure("无法准备 AAC 音轨") }
+        aacFilters[Int32(index)] = bsf
+        bsf.pointee.time_base_in = stream.pointee.time_base
+        guard avcodec_parameters_copy(bsf.pointee.par_in, parameters) >= 0,
+              av_bsf_init(bsf) >= 0 else { throw failure("无法准备 AAC 分片") }
+      }
       added.pointee.time_base = stream.pointee.time_base
       added.pointee.disposition = stream.pointee.disposition
       av_dict_copy(&added.pointee.metadata, stream.pointee.metadata, 0)
+      if type == AVMEDIA_TYPE_AUDIO && fragmentSequence == nil {
+        // The HLS demuxer publishes the rendition name in "comment".
+        // MP4 uses a handler name and a three-letter media language.
+        if let name = av_dict_get(stream.pointee.metadata, "comment", nil, 0)?.pointee.value {
+          av_dict_set(&added.pointee.metadata, "handler_name", name, 0)
+        }
+        if let tag = av_dict_get(stream.pointee.metadata, "language", nil, 0)?.pointee.value,
+           let primary = String(cString: tag).split(separator: "-").first,
+           let code = Locale.LanguageCode(String(primary)).identifier(.alpha3) {
+          av_dict_set(&added.pointee.metadata, "language", code, 0)
+        }
+      }
       mapping[Int32(index)] = added.pointee.index
       counts[Int32(index)] = 0
     }
@@ -212,8 +265,15 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
     code = avio_open(&target.pointee.pb, output.path, AVIO_FLAG_WRITE)
     guard code >= 0 else { throw failure("无法写入 MP4，请检查剩余空间", code) }
     var muxOptions: OpaquePointer?
-    av_dict_set(&muxOptions, "movflags", "+faststart", 0)
-    av_dict_set(&muxOptions, "avoid_negative_ts", "make_zero", 0)
+    if let sequence = fragmentSequence {
+      av_dict_set(&muxOptions, "movflags", "+delay_moov+frag_custom+default_base_moof+frag_discont+skip_trailer", 0)
+      av_dict_set_int(&muxOptions, "fragment_index", Int64(sequence), 0)
+      av_dict_set(&muxOptions, "use_editlist", "0", 0)
+      av_dict_set(&muxOptions, "avoid_negative_ts", "disabled", 0)
+    } else {
+      av_dict_set(&muxOptions, "movflags", "+faststart", 0)
+      av_dict_set(&muxOptions, "avoid_negative_ts", "make_zero", 0)
+    }
     defer { av_dict_free(&muxOptions) }
     code = avformat_write_header(target, &muxOptions)
     guard code >= 0 else { throw failure("该编码无法无损封装为 MP4，分片已保留", code) }
@@ -229,6 +289,11 @@ final class OfflineVideoRemuxer: @unchecked Sendable {
       if let outputIndex = mapping[inputIndex],
          let from = context.pointee.streams[Int(inputIndex)],
          let to = target.pointee.streams[Int(outputIndex)] {
+        if let filter = aacFilters[inputIndex] {
+          // aac_adtstoasc is a one-in/one-out packet filter.
+          guard av_bsf_send_packet(filter, pkt) >= 0, av_bsf_receive_packet(filter, pkt) >= 0
+          else { throw failure("AAC 分片转换失败") }
+        }
         av_packet_rescale_ts(pkt, from.pointee.time_base, to.pointee.time_base)
         pkt.pointee.stream_index = outputIndex
         pkt.pointee.pos = -1
@@ -267,6 +332,22 @@ final class OfflineVideoMergeController {
     FlutterMethodChannel(name: "lumebox/video_remux", binaryMessenger: messenger)
       .setMethodCallHandler { [self] call, result in
         let args = call.arguments as? [String: Any] ?? [:]
+        if call.method == "fragment" {
+          guard let input = args["input"] as? FlutterStandardTypedData,
+                let sequence = args["sequence"] as? Int else {
+            result(FlutterError(code: "fragment", message: "无效视频分片", details: nil)); return
+          }
+          let data = input.data
+          Task { @MainActor in
+            do {
+              let output = try await Task.detached(priority: .userInitiated) {
+                try OfflineVideoRemuxer().fragment(input: data, sequence: sequence)
+              }.value
+              result(FlutterStandardTypedData(bytes: output))
+            } catch { result(FlutterError(code: "fragment", message: error.localizedDescription, details: nil)) }
+          }
+          return
+        }
         guard let id = args["id"] as? String else {
           result(FlutterError(code: "merge", message: "无效下载任务", details: nil)); return
         }

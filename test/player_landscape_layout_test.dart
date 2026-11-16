@@ -89,7 +89,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Slider), findsWidgets);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.byTooltip('返回播放'));
+      await tester.tapAt(const Offset(20, 100));
       await tester.pumpAndSettle();
       expect(find.text('打开'), findsOneWidget);
     });

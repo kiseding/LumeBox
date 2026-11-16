@@ -327,6 +327,10 @@ void main() {
           tester.getTopLeft(find.byKey(const ValueKey('picker-card-b39'))).dy,
           closeTo(tester.getTopLeft(list).dy, 1),
         );
+        if (find.byType(TextField).evaluate().isEmpty) {
+          await tester.tap(find.byTooltip('搜索源'));
+          await tester.pumpAndSettle();
+        }
         await tester.enterText(find.byType(TextField), '甲0');
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('picker-source-a0')), findsOneWidget);
@@ -349,9 +353,17 @@ void main() {
       expect(position(0).pixels, 0);
       expect(manager.sources.map((source) => source.id).toList(), order);
       expect(manager.selectedIds, isEmpty);
+      if (find.byType(TextField).evaluate().isEmpty) {
+        await tester.tap(find.byTooltip('搜索源'));
+        await tester.pumpAndSettle();
+      }
       await tester.enterText(find.byType(TextField), '甲0');
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('picker-source-a0')), findsOneWidget);
+      if (find.byType(TextField).evaluate().isEmpty) {
+        await tester.tap(find.byTooltip('搜索源'));
+        await tester.pumpAndSettle();
+      }
       await tester.enterText(find.byType(TextField), '');
       await tester.pumpAndSettle();
       expect(position(1).pixels, 0);
@@ -764,6 +776,10 @@ void main() {
     );
     expect(find.byTooltip('切换为单列'), findsNothing);
     expect(find.byTooltip('切换为双列'), findsNothing);
+    if (find.byType(TextField).evaluate().isEmpty) {
+      await tester.tap(find.byTooltip('搜索源'));
+      await tester.pumpAndSettle();
+    }
     await tester.enterText(find.byType(TextField), '乙');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('picker-source-a')), findsNothing);
@@ -809,6 +825,10 @@ void main() {
       tester.getTopLeft(movie).dy,
       greaterThan(tester.getTopLeft(second).dy),
     );
+    if (find.byType(TextField).evaluate().isEmpty) {
+      await tester.tap(find.byTooltip('搜索源'));
+      await tester.pumpAndSettle();
+    }
     await tester.enterText(find.byType(TextField), '影视甲');
     await tester.pumpAndSettle();
     expect(
@@ -896,7 +916,7 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('open-source-picker')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('关闭'));
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
     expect(refreshes, 0);
     await tester.tap(find.byKey(const ValueKey('open-source-picker')));
@@ -916,7 +936,7 @@ void main() {
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.tap(find.widgetWithText(TextButton, '保存'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('关闭'));
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
     expect(refreshes, 1);
   });

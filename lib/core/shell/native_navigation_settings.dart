@@ -3,7 +3,7 @@ class NativeNavigationSettings {
   const NativeNavigationSettings({
     this.enabled = true,
     this.showLabels = true,
-    this.solidIcons = false,
+    this.solidIcons = true,
     this.followThemeColor = true,
     this.tintColor = 0xFF7C5CFF,
     this.iconSize = 22,
@@ -17,7 +17,7 @@ class NativeNavigationSettings {
   final bool enabled;
   final bool showLabels;
 
-  /// Optional monochrome solid icons; old configurations keep the original style.
+  /// Monochrome solid icons are enabled by default; an explicit opt-out persists.
   final bool solidIcons;
   final bool followThemeColor;
   final int tintColor;
@@ -92,7 +92,7 @@ class NativeNavigationSettings {
       showLabels: value['showLabels'] is bool
           ? value['showLabels'] as bool
           : true,
-      solidIcons: value['solidIcons'] == true,
+      solidIcons: value['solidIcons'] != false,
       followThemeColor: value['followThemeColor'] is bool
           ? value['followThemeColor'] as bool
           : true,

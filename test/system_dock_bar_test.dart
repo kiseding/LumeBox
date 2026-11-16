@@ -1,3 +1,4 @@
+import 'package:lume_box/shared/widgets/glass_card.dart';
 import 'package:lume_box/shared/widgets/native_glass_controls.dart';
 
 import 'dart:async';
@@ -93,7 +94,7 @@ class NativeHarness {
     });
   }
 
-  Future<void> event(String method, Object? args) async {
+  Future<void> event(String method, Object? args, {bool search = false}) async {
     final done = Completer<void>();
     tester.binding.channelBuffers.push(
       channels.last.name,
@@ -236,11 +237,11 @@ void main() {
     expect(defaults.materialOpacity, .62);
     expect(defaults.opaqueBackground, isFalse);
     expect(defaults.showLabels && defaults.followThemeColor, isTrue);
-    expect(defaults.solidIcons, isFalse);
-    final solid = defaults.copyWith(solidIcons: true);
+    expect(defaults.solidIcons, isTrue);
+    final solid = defaults.copyWith(solidIcons: false);
     expect(
       NativeNavigationSettings.fromJson(solid.toJson()).solidIcons,
-      isTrue,
+      isFalse,
     );
     expect(NativeNavigationSettings.fromJson({}), defaults);
     final saved = NativeNavigationSettings.fromJson({
@@ -421,6 +422,7 @@ void main() {
               onSelect: selected.add,
               settings: NativeNavigationSettings(
                 showLabels: labels,
+                solidIcons: false,
                 followThemeColor: false,
                 tintColor: 0xFF008A6A,
                 iconSize: 28,
@@ -527,12 +529,17 @@ void main() {
     expect(barRect.width, closeTo(358, .1));
     expect(
       (harness.updates.last['entries'] as List).map((e) => (e as Map)['id']),
-      ['comic', 'video', 'settings', 'search'],
+      ['comic', 'video', 'music', 'settings', 'search'],
     );
     expect(find.byKey(const ValueKey('browse-search-surface')), findsNothing);
     await harness.event('selected', 'search');
     await tester.pumpAndSettle();
-    expect(searches, 1);
+    expect(find.widgetWithText(AppBar, '全局搜索'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, '全部'), findsOneWidget);
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+    expect(tester.element(find.text('page-comic')), same(page));
+    expect(searches, 0);
     UserScrollNotification(
       metrics: FixedScrollMetrics(
         minScrollExtent: 0,
@@ -572,9 +579,9 @@ void main() {
       ),
       findsOneWidget,
     );
-    await harness.event('selected', 'search');
+    // Search is no longer a native tab item.
     await tester.pumpAndSettle();
-    expect(searches, 2);
+    expect(searches, 0);
     final hideToken = Object();
     controller.hide(hideToken);
     await tester.pumpAndSettle();
@@ -638,7 +645,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       (harness.updates.last['entries'] as List).map((e) => (e as Map)['id']),
-      ['video', 'settings', 'comic', 'search'],
+      ['video', 'music', 'comic', 'settings', 'search'],
     );
     expect(find.text('page-settings'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
@@ -646,44 +653,43 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-  testWidgets('旧系统回退 Dock 时，搜索位于胶囊内并一起收起、隐藏', (tester) async {
-    NativeHarness(tester).install(supported: false);
+  testWidgets('旧系统回退 Dock 时搜索与音乐共用胶囊并一起收起', (tester) async {
+    final harness = NativeHarness(tester);
+    harness.install(supported: false);
     final controller = ShellDockController();
     addTearDown(controller.dispose);
-    await tester.binding.setSurfaceSize(const Size(320, 720));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       MaterialApp(
+        theme: LumeTheme.build(),
         home: AppShell(
           controller: controller,
           desktopRail: false,
-          pageBuilder: (id) => Stack(
-            fit: StackFit.expand,
-            children: [
-              Text('fallback-$id'),
-              BrowseSearchButton(onPressed: () {}),
-            ],
-          ),
+          pageBuilder: (id) =>
+              GlassScaffold(title: id, child: Text('page-$id')),
         ),
       ),
     );
     await tester.pumpAndSettle();
     expect(find.byType(ShellDockBar), findsOneWidget);
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is UiKitView && widget.viewType == SystemDockBar.viewType,
-      ),
-      findsNothing,
+    final capsule = tester.getRect(find.byKey(ShellDockBar.capsuleSurfaceKey));
+    final search = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.text('搜索'),
     );
-    final capsule = tester.getRect(find.byKey(ShellDockBar.capsuleFilterKey));
-    expect(capsule.contains(tester.getCenter(find.text('搜索'))), true);
-    final page = tester.element(find.text('fallback-comic'));
+    expect(capsule.contains(tester.getCenter(search)), true);
+    expect(
+      find.descendant(
+        of: find.byKey(AppShell.dockKey),
+        matching: find.text('音乐'),
+      ),
+      findsOneWidget,
+    );
+    final page = tester.element(find.text('page-comic'));
     UserScrollNotification(
       metrics: FixedScrollMetrics(
         minScrollExtent: 0,
         maxScrollExtent: 1000,
-        pixels: 200,
+        pixels: 100,
         viewportDimension: 600,
         axisDirection: AxisDirection.down,
         devicePixelRatio: 1,
@@ -693,15 +699,7 @@ void main() {
     ).dispatch(page);
     await tester.pumpAndSettle();
     expect(find.byType(DockHandleButton), findsOneWidget);
-    expect(find.text('搜索'), findsNothing);
-    final token = Object();
-    controller.hide(token);
-    await tester.pumpAndSettle();
-    expect(find.byType(DockHandleButton), findsNothing);
-    expect(find.byTooltip('搜索'), findsNothing);
-    controller.show(token);
-    await tester.pumpAndSettle();
-    expect(find.text('搜索'), findsOneWidget);
+    expect(search, findsNothing);
     await tester.pumpWidget(const SizedBox());
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
@@ -737,16 +735,17 @@ void main() {
     );
     await tester.pumpAndSettle();
     final solidToggle = find.byKey(const ValueKey('navigation-solid-icons'));
-    await tester.tap(solidToggle);
-    await tester.pumpAndSettle();
     expect(controller.settings.nativeNavigation.solidIcons, isTrue);
-    expect(
-      (await ShellSettingsStore.open()).load().nativeNavigation.solidIcons,
-      isTrue,
-    );
     await tester.tap(solidToggle);
     await tester.pumpAndSettle();
     expect(controller.settings.nativeNavigation.solidIcons, isFalse);
+    expect(
+      (await ShellSettingsStore.open()).load().nativeNavigation.solidIcons,
+      isFalse,
+    );
+    await tester.tap(solidToggle);
+    await tester.pumpAndSettle();
+    expect(controller.settings.nativeNavigation.solidIcons, isTrue);
     expect(
       find.byKey(const ValueKey('top-navigation-transparency')),
       findsNothing,

@@ -1,5 +1,28 @@
 import 'package:flutter/foundation.dart';
 
+/// Portrait episode gestures decide once, then commit only after release.
+abstract final class EpisodeSwipePolicy {
+  static bool claims(double dx, double dy, double startFraction) =>
+      startFraction >= .18 &&
+      startFraction <= .82 &&
+      dy.abs() >= 12 &&
+      dy.abs() > dx.abs() * 1.2;
+
+  static double threshold(double height) => (height * .12).clamp(56.0, 110.0);
+
+  /// +1 = next, -1 = previous, 0 = return to the current episode.
+  static int direction({
+    required double dy,
+    required double velocity,
+    required double height,
+  }) {
+    if (height <= 0 || dy.abs() < 20) return 0;
+    if (velocity.abs() >= 650 && velocity.sign != dy.sign) return 0;
+    if (dy.abs() < threshold(height) && velocity.abs() < 650) return 0;
+    return dy < 0 ? 1 : -1;
+  }
+}
+
 /// 播放器手势的纯逻辑：把「一次拖拽」翻译成亮度 / 音量 / 进度的变化。
 ///
 /// 为什么要抽出来：手势的业务规则（左侧调亮度、右侧调音量、水平拖进度、

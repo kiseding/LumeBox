@@ -43,7 +43,7 @@ class _NovelDetailPageState extends State<NovelDetailPage>
   List<SourceChapter> _chapters = [];
   List<int> _chapterOrder = [];
   String? _error;
-  bool _loading = true, _reversed = false;
+  bool _loading = true, _reversed = false, _descriptionExpanded = false;
   String get _title => _detail?.title ?? widget.target.title;
   ReadingProgress? get _progress => widget.library.progress(
     widget.target.itemId,
@@ -233,8 +233,35 @@ class _NovelDetailPageState extends State<NovelDetailPage>
                         ),
                         const SizedBox(height: 12),
                         if (_detail?.description?.isNotEmpty == true)
-                          SelectableText(
-                            TextContent.fromHtml(_detail!.description!).text,
+                          InkWell(
+                            key: const ValueKey('novel-description-toggle'),
+                            onTap: () => setState(
+                              () =>
+                                  _descriptionExpanded = !_descriptionExpanded,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  TextContent.fromHtml(_detail!.description!)
+                                      .text,
+                                  key: const ValueKey('novel-description'),
+                                  maxLines: _descriptionExpanded ? null : 2,
+                                  overflow: _descriptionExpanded
+                                      ? TextOverflow.visible
+                                      : TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  _descriptionExpanded ? '收起简介' : '展开简介',
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         const SizedBox(height: 16),
                         FilledButton(

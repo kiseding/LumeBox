@@ -1,5 +1,27 @@
 # 本地补丁说明（third_party/video_player_avfoundation）
 
+## 2026-11-12 · 有缓冲但系统播放器停止推进
+
+诊断包（App 1.0.317）中，同一 HLS 两次在约 21 秒出首帧后仍未推进，触发
+`buffered-startup-stalled`，MPV 接管后约一秒开始推进。日志能证明系统播放器停滞，
+但不能单独确定首次初始化较慢的原因，也不能断言哪一笔历史提交首次引入问题。
+
+原生恢复存在明确缺口：关闭 `automaticallyWaitsToMinimizeStalling` 后，AVPlayer
+缓冲耗尽会把 rate 归零并暂停。上游插件只在 `playbackLikelyToKeepUp` 改变时重发
+播放；少量可播数据到达时该值可能仍为 false，`loadedTimeRanges` 原先只通知 UI。
+依据：[Apple 自动等待说明](https://developer.apple.com/documentation/avfoundation/avplayer/automaticallywaitstominimizestalling)。
+
+现在缓冲更新后在主线程检查仍然有效的播放意图、初始化状态和未完成的 seek。
+仅当当前位置至少有 250ms 连续数据、rate 为零且系统自动等待关闭时，使用
+`playImmediatelyAtRate:` 恢复当前 AVPlayer，并保留倍速与原生速率能力限制。
+用户暂停、seek 未结束、已释放或失败的播放器、远处孤立缓冲均不自动恢复。
+保留原有内核回退机制作为最后保护，不扩大缓存、不缩短回退时间。
+
+验证：`tool/check_ios_player_presentation.sh` 编译真实播放器和 helper（iOS 18），
+并运行 `tool/avplayer_buffer_resume_smoke.m` 的 AVFoundation 替身行为检查。
+该检查验证真实恢复函数，不等同于设备上的网络 HLS 验收；同一媒体在用户设备上的
+启动速度、缓冲状态和系统画中画仍需新版真机复验。
+
 本目录是 **`video_player_avfoundation` 2.12.0 的本地 vendored 副本**（来自 pub
 镜像 `pub.flutter-io.cn`，上游仓库见 `pubspec.yaml` 的 `repository` 字段），
 项目 `pubspec.yaml` 以 `dependency_overrides` 的**路径覆盖**引用它。
@@ -93,6 +115,17 @@ accessLog 时返回 null，不把播放码率伪装成下载速度。`applyBuffe
 `lumebox/av_network.readVideoState` 返回可见原生层是否存在、已挂载和准备好显示，供 iOS 播放回归检查使用。原生检查脚本编译实际 Objective-C 登记实现，并检查 Swift 桥接和生产 PiP 代码；集成用例同时覆盖画中画准备、弹幕切换、清理与 SDR 纹理路径。实际 HDR 输出和真机画中画仍需设备验收。
 
 ## 补丁 2 · seek 容差（拖动快进不卡）
+
+### 2026-11-12：时长与音轨读取不阻塞主线程
+
+初始化事件与 seek 的时长比较优先使用 `AVPlayerItem.duration`；仅在 asset 的
+`duration` 已加载时才读取 asset，未知或直播时长返回 0。修正原 seek 把毫秒目标
+与 asset 原始 time value 比较的问题。原生行为检查覆盖未知、加载中、失败、取消
+和已加载状态，禁止访问未加载时长。
+
+iOS 宿主的音轨列表/选择改走 `lumebox/av_presentation` 的异步 media selection
+接口，避免调用上游同步 getter；原生状态轮询按 item 限制为一个在途请求，防止
+Dart 超时后重复积压原生读取。视频 UIView 不接收触摸，操作由 Flutter 控制层负责。
 
 **改动**：`darwin/video_player_avfoundation/Sources/video_player_avfoundation_objc/FVPVideoPlayer.m` 的 `seekTo:completion:`
 

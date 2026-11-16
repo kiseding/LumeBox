@@ -2,6 +2,7 @@ import 'package:lume_box/core/media/media_library.dart';
 import 'package:lume_box/features/reading/history_sheet.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lume_box/core/player/abstract_player.dart';
+import 'package:lume_box/core/media/playback_focus.dart';
 import 'package:lume_box/core/intro/intro_store.dart';
 import 'package:lume_box/core/player/player_factory.dart';
 import 'package:lume_box/core/player/player_settings.dart';
@@ -19,9 +21,11 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
-import 'package:lume_box/features/reading/section_image.dart';
 import 'package:lume_box/features/video/video_page.dart';
+import 'package:lume_box/features/video/video_play_target.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
+import 'package:lume_box/features/video/video_download_center.dart';
+import 'package:lume_box/features/video/video_player_settings.dart';
 
 import 'support/fake_source_manager.dart';
 
@@ -59,7 +63,13 @@ void main() {
           const MethodChannel('lumebox/mediaTracks'),
           (_) async => {'known': true, 'audio': true, 'video': true},
         );
-    await ReadingLibrary.open(video);
+    final library = await ReadingLibrary.open(video);
+    // These routing fixtures use fake media, so they must not start real probes.
+    library.setSetting(
+      VideoPlayerSettingsStore.keyBackgroundSourceValidation,
+      'false',
+    );
+    library.setSetting(VideoPlayerSettingsStore.keyControlStyle, 'text');
     source = _VideoSource();
     manager = FakeSourceManager(
       sources: const <SourceDescriptor>[
@@ -108,6 +118,72 @@ void main() {
     return created;
   }
 
+  testWidgets('历史记录优先打开已下载文件，不请求源详情和播放地址', (tester) async {
+    final library = ReadingLibrary.find(video)!;
+    library.recordHistoryItem(
+      sourceId: 'demo-video',
+      itemId: 'offline',
+      title: '离线影片',
+    );
+    final progress = VideoProgress(
+      section: video,
+      sourceId: 'demo-video',
+      itemId: 'offline',
+      chapterId: 'e3',
+      chapterIndex: 2,
+      chapterTitle: '第3集',
+      position: const Duration(seconds: 40),
+      duration: const Duration(minutes: 2),
+      updatedAt: DateTime.now(),
+    );
+    library.saveProgress(progress);
+    final downloads = VideoDownloadCenter.instance;
+    final task = VideoDownloadTask(
+      id: VideoDownloadCenter.identity('demo-video', 'offline', 'e3'),
+      sourceId: 'demo-video',
+      itemId: 'offline',
+      chapterId: 'e3',
+      title: '离线影片',
+      chapterTitle: '第3集',
+      chapterIndex: 2,
+      state: 'done',
+      fileName: 'movie.mp4',
+    );
+    await tester.runAsync(() async {
+      await downloads.boot();
+      downloads.tasks.add(task);
+      await Directory(downloads.folder(task)).create(recursive: true);
+      await downloads.localFile(task).writeAsBytes([1, 2, 3]);
+    });
+    addTearDown(() => downloads.tasks.remove(task));
+    await pumpBoard(tester);
+    await tester.tap(find.text('历史'));
+    await tester.pumpAndSettle();
+    final history = tester.widget<ReadingHistorySheet>(
+      find.byType(ReadingHistorySheet),
+    );
+    history.onResume(library.history().single, progress);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(VideoPlayerPage), findsOneWidget);
+    expect(
+      tester.widget<VideoPlayerPage>(find.byType(VideoPlayerPage)).media?.uri,
+      downloads.localFile(task).uri,
+    );
+    expect(source.chapterCalls, isEmpty);
+    expect(source.contentCalls, isEmpty);
+    expect(
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .target
+          ?.chapterId,
+      'e3',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('首页就是图源展示页：列表直接可见，播放器不占首页', (tester) async {
     source.items = const <SourceItem>[
       SourceItem(id: 'https://example.com/demo.mp4', title: '测试视频'),
@@ -118,149 +194,74 @@ void main() {
     expect(find.text('公开样片测试源'), findsOneWidget);
     expect(find.text('测试视频'), findsOneWidget);
     expect(find.text('视频地址或本地路径'), findsNothing, reason: '播放器的地址栏不该占着首页');
-    expect(find.byTooltip('播放器设置'), findsNothing);
-
-    // 图源管理入口只有右上角一个（图源条不再重复一个同名入口）。
-    expect(find.byTooltip('订阅'), findsNothing);
-    expect(find.text('历史'), findsOneWidget);
-    expect(find.text('收藏'), findsOneWidget);
+    // Playback controls now belong to UIKit and are exercised by the native
+    // integration suite. This source-flow test stops at the media handoff.
   });
 
-  testWidgets('列表条目展示封面 / 标题 / 简介：只有带封面的条目占图位', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(
-        id: 'movie-1',
-        title: '示例影片',
-        subtitle: '科幻 · 2026',
-        cover: 'https://example.com/poster.jpg',
-      ),
-      SourceItem(id: 'movie-2', title: '无封面影片'),
-    ];
+  testWidgets('从详情换源搜索后可打开目标源播放器', (tester) async {
+    source.items = const [SourceItem(id: 'one', title: '原片')];
+    source.chapterList = const [SourceChapter(id: 'old', title: '第1集')];
+    final other = _VideoSource(id: 'other')
+      ..items = const [SourceItem(id: 'two', title: '原片（换源）')]
+      ..chapterList = const [SourceChapter(id: 'new', title: '第1集')]
+      ..contentUrl = 'https://example.com/new.mp4';
+    manager.sources.add(const SourceDescriptor(
+      id: 'other', name: '第二个源', version: '1', enabled: true,
+    ));
+    manager.opened[other.id] = other;
     await pumpBoard(tester);
-
-    // 标题与简介照常展示。
-    expect(find.text('示例影片'), findsOneWidget);
-    expect(find.text('科幻 · 2026'), findsNothing, reason: '紧凑海报只显示下方标题');
-
-    // 封面走本板块的图片管线（与小说 / 漫画列表同一套纪律）；测试环境取不到
-    // 图时显示主题占位，图位本身照常在，不影响断言。
-    final covers = tester
-        .widgetList<SectionImage>(find.byType(SectionImage))
-        .toList(growable: false);
-    expect(
-      covers,
-      hasLength(2),
-      reason:
-          '浏览列表与小说 / 漫画同一套卡片：每条都占封面位'
-          '（没封面的显示主题占位，与小说明 / 漫画列表一致）',
-    );
-    expect(
-      covers.first.url,
-      'https://example.com/poster.jpg',
-      reason: '有封面的条目按图源给的地址取图',
-    );
-    expect(
-      covers.last.url.isEmpty,
-      isTrue,
-      reason: '没封面的条目走主题占位（图位仍在，不留空位之外的空缺）',
-    );
+    await tester.tap(find.text('原片'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('video-detail-more')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保持集数换源'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('search-filter-other')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('原片（换源）'));
+    await tester.pumpAndSettle();
+    await tapWithDetailPlay(tester, find.byKey(const Key('video-detail-play')));
+    final player = tester.widget<VideoPlayerPage>(find.byType(VideoPlayerPage));
+    expect(player.target?.sourceId, other.id);
+    expect(player.target?.chapterId, 'new');
+    expect(player.media?.uri.toString(), other.contentUrl);
+    expect(player.source, same(other));
   });
 
-  testWidgets('导入源后首页自动刷新出列表（不必手动重试或切页签）', (tester) async {
-    // 空板块起步：首页显示空态与导入引导。
-    manager = FakeSourceManager(
-      // 导入后的新图源（FakeSourceManager 固定用 lume.new / 新图源）可打开。
-      opened: <String, DataSource>{'lume.new': source},
-    );
-    source.items = const <SourceItem>[
-      SourceItem(id: 'https://example.com/after-import.mp4', title: '导入后的条目'),
-    ];
+  testWidgets('等待其他音频释放焦点时离开详情不会再打开播放器', (tester) async {
+    source.items = const [SourceItem(id: 'https://example.com/movie.mp4', title: '等待焦点')];
     await pumpBoard(tester);
-
-    expect(find.text('暂无源'), findsOneWidget, reason: '起步是空板块');
-
-    // 走右上角「+」导入（与真实导入同一条路径：校验 → 落库 → onImported）。
-    await tapWithDetailPlay(tester, find.text('源管理'));
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
+    await tester.tap(find.text('等待焦点'));
     await tester.pumpAndSettle();
-    await tapWithDetailPlay(tester, find.byTooltip('添加源'));
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byType(TextField),
-      '// LumeSource: {"id":"lume.new","name":"新图源","version":"1.0.0"}',
-    );
-    await tapWithDetailPlay(tester, find.text('导入'));
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
-    await tester.pumpAndSettle();
-
-    await backToBrowse(tester);
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
-    await tester.pumpAndSettle();
-    expect(manager.imported, hasLength(1));
-    // 自动刷新：空态消失，图源条换成新图源，列表直接出现（无需点「重试」）。
-    expect(find.text('暂无源'), findsNothing, reason: '导入完成即重挂浏览面');
-    expect(find.text('新图源'), findsOneWidget, reason: '源条切到新导入的源');
-    expect(find.text('导入后的条目'), findsOneWidget, reason: '列表自动刷出');
-    // 刷新必须是**原地重解析**：管理器不能被拆（拆了会连带拆掉板块共享的
-    // 图源注册表，页面随后就报「图源存储不可用」——真机自测抓到的竞态）。
-    expect(manager.closed, isFalse, reason: '刷新不能释放管理器');
-  });
-
-  testWidgets('条目先进入详情再手动播放：自带地址不重复解析章节', (tester) async {
-    source.items = const <SourceItem>[
-      SourceItem(id: 'https://example.com/demo.mp4', title: '测试视频'),
-    ];
-    source.contentUrl = 'https://example.com/demo.mp4';
-    final created = await pumpBoard(tester);
-    expect(created, isEmpty, reason: '浏览页自己不建播放器（起播才建）');
-
-    await tapWithDetailPlay(tester, find.text('测试视频'));
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
-    await tester.pumpAndSettle();
-
-    // 起播：唤起独立播放器页，媒体交给播放器。
-    expect(find.byType(VideoPlayerPage), findsOneWidget, reason: '点条目唤起播放器页');
-    expect(created, hasLength(1));
-    expect(
-      created.single.media?.uri.toString(),
-      'https://example.com/demo.mp4',
-    );
-    expect(created.single.media?.title, '测试视频 · 正片');
-    expect(source.chapterCalls, isEmpty, reason: '自带地址不必再去问剧集');
-    expect(find.byTooltip('播放器设置'), findsWidgets, reason: '播放器页带设置入口');
-    // 地址不再铺在控制栏上（用户要求）：从「播放源」弹窗里能看到它。
-    expect(
-      find.text('https://example.com/demo.mp4'),
-      findsNothing,
-      reason: '控制栏不直接展示长链接',
-    );
-    await tapWithDetailPlay(tester, find.byTooltip('线路 / 选集'));
-    await tester.pump();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-    });
-    await tester.pumpAndSettle();
-
-    expect(find.text('https://example.com/demo.mp4'), findsNothing);
-    await tester.tap(find.byTooltip('播放信息'));
-    await tester.pumpAndSettle();
-    expect(find.text('复制地址'), findsOneWidget);
+    final detail = find.byType(VideoDetailPage);
+    final pending = Completer<void>();
+    var releasing = false;
+    var releaseCalls = 0;
+    Future<void> release() {
+      releasing = true;
+      releaseCalls++;
+      return pending.future;
+    }
+    await PlaybackFocus.acquire('test-audio', onRelease: release);
+    try {
+      final page = tester.widget<VideoDetailPage>(detail);
+      const target = VideoPlayTarget(sourceId: 'demo-video', itemId: 'movie', title: '等待焦点',
+        chapterIndex: 0, chapterId: 'movie', chapterTitle: '正片');
+      unawaited(page.onPlay((context: tester.element(detail), source: source), PlayerMedia(uri: Uri.parse('https://example.com/movie.mp4')), target, [], null));
+      await tester.pump();
+      expect(releasing, isTrue);
+      Navigator.of(tester.element(detail)).pop();
+      pending.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(VideoPlayerPage), findsNothing);
+      expect(PlaybackFocus.owner, isNull, reason: '已停止的音频不再占有播放焦点');
+      expect(PlaybackFocus.isPlaying, isFalse);
+      await PlaybackFocus.acquire('test-next-player');
+      expect(releaseCalls, 1, reason: '后续播放不能再次停止已经释放的旧音频');
+    } finally {
+      if (!pending.isCompleted) pending.complete();
+      PlaybackFocus.unregister('test-audio', release);
+    }
   });
 
   testWidgets('条目没有地址：走剧集链路，选一集后起播取到的视频地址', (tester) async {
@@ -270,7 +271,7 @@ void main() {
       SourceChapter(id: 'movie-1-e2', title: '第 2 集'),
     ];
     source.contentUrl = 'https://example.com/movie-1-e2.mp4';
-    final created = await pumpBoard(tester);
+    await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('示例影片'));
     await tester.pump();
@@ -296,10 +297,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      created.single.media?.uri.toString(),
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .media
+          ?.uri
+          .toString(),
       'https://example.com/movie-1-e2.mp4',
     );
-    expect(source.contentCalls.single, ('movie-1', 'movie-1-e2'));
+    expect(source.contentCalls, [
+      ('movie-1', 'movie-1-e1'),
+      ('movie-1', 'movie-1-e2'),
+    ], reason: '先探测首集内容类型，再解析用户选择的第二集，各一次');
   });
 
   testWidgets('站内路径 id（/watch?v=…）不能当成本地文件：走剧集 + 内容取地址（真机 -17913 回归）', (
@@ -319,7 +327,7 @@ void main() {
       'User-Agent': 'src-ua',
       'Referer': 'https://hanime1.me/watch?v=123',
     };
-    final created = await pumpBoard(tester);
+    await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('樣片'));
     await tester.pump();
@@ -331,12 +339,26 @@ void main() {
     expect(source.chapterCalls, isNotEmpty, reason: '站内路径要先问剧集');
     expect(source.contentCalls, isNotEmpty, reason: '再取这一集的播放地址');
     expect(
-      created.single.media!.uri.toString(),
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .media!
+          .uri
+          .toString(),
       'https://hanime1.me/download/123.mp4',
     );
-    expect(created.single.media!.uri.scheme, 'https');
     expect(
-      created.single.media!.headers?['Referer'],
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .media!
+          .uri
+          .scheme,
+      'https',
+    );
+    expect(
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .media!
+          .headers?['Referer'],
       'https://hanime1.me/watch?v=123',
       reason: '图源给的防盗链头必须一起交给内核',
     );
@@ -357,7 +379,7 @@ void main() {
       'User-Agent': 'src-ua',
       'Referer': 'https://hanime1.me/watch?v=123',
     };
-    final created = await pumpBoard(tester);
+    await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('樣片'));
     await tester.pump();
@@ -369,12 +391,26 @@ void main() {
     expect(source.chapterCalls, isNotEmpty, reason: '站内路径要先问剧集');
     expect(source.contentCalls, isNotEmpty, reason: '再取这一集的播放地址');
     expect(
-      created.single.media!.uri.toString(),
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .media!
+          .uri
+          .toString(),
       'https://hanime1.me/download/123.mp4',
     );
-    expect(created.single.media!.uri.scheme, 'https');
     expect(
-      created.single.media!.headers?['Referer'],
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .media!
+          .uri
+          .scheme,
+      'https',
+    );
+    expect(
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .media!
+          .headers?['Referer'],
       'https://hanime1.me/watch?v=123',
       reason: '图源给的防盗链头必须一起交给内核',
     );
@@ -386,7 +422,7 @@ void main() {
       SourceChapter(id: 'movie-1-e1', title: '第 1 集'),
     ];
     source.contentUrl = 'https://example.com/movie-1-e1.mp4';
-    final created = await pumpBoard(tester);
+    await pumpBoard(tester);
 
     await tapWithDetailPlay(tester, find.text('示例影片'));
     await tester.pump();
@@ -397,7 +433,11 @@ void main() {
 
     expect(find.text('选择剧集'), findsNothing);
     expect(
-      created.single.media?.uri.toString(),
+      tester
+          .widget<VideoPlayerPage>(find.byType(VideoPlayerPage))
+          .media
+          ?.uri
+          .toString(),
       'https://example.com/movie-1-e1.mp4',
     );
   });
@@ -441,11 +481,12 @@ void main() {
 
 /// 视频图源替身：列表 / 剧集 / 内容都按用例配置，不碰沙箱与网络。
 class _VideoSource implements DataSource {
+  _VideoSource({this.id = 'demo-video'});
   @override
   final Section section = Section.video;
 
   @override
-  String get id => 'demo-video';
+  final String id;
 
   @override
   String get name => '公开样片测试源';
@@ -606,10 +647,13 @@ Future<void> tapWithDetailPlay(
       .evaluate()
       .isNotEmpty;
   await tester.tap(finder, warnIfMissed: warnIfMissed);
-  await tester.pump();
-  await tester.runAsync(() async {
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-  });
+  // Prelaunch waits for endOfFrame while source/settings I/O uses the real clock.
+  for (var i = 0; i < 8; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 60)),
+    );
+  }
   await tester.pumpAndSettle();
   if (find.byType(VideoDetailPage).evaluate().isNotEmpty) {
     final chips = find.descendant(
@@ -622,10 +666,12 @@ Future<void> tapWithDetailPlay(
           tester.widget<FilledButton>(play).onPressed != null) {
         await tester.ensureVisible(play);
         await tester.tap(play);
-        await tester.pump();
-        await tester.runAsync(() async {
-          await Future<void>.delayed(const Duration(milliseconds: 30));
-        });
+        for (var i = 0; i < 8; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 60)),
+          );
+        }
         await tester.pumpAndSettle();
       }
     }

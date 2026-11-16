@@ -12,7 +12,8 @@ import '../../core/theme/lume_theme.dart';
 import 'diagnostic_exporter.dart';
 import 'settings_ui.dart';
 
-class DiagnosticExportTile extends StatefulWidget {
+class DiagnosticExportTile extends StatefulWidget
+    implements SettingsGroupEntry {
   const DiagnosticExportTile({super.key, this.collect, this.save});
   final Future<DiagnosticBundle> Function()? collect;
   final Future<bool> Function(DiagnosticBundle bundle)? save;

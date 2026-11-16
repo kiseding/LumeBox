@@ -5,6 +5,27 @@ import Flutter
 import UIKit
 import CoreImage
 
+// BEGIN PiP playback timeline
+/// Map each episode's position onto a continuous display clock.
+final class PipPlaybackTimeline {
+  private var mediaAnchor = CMTime.zero
+  private var displayAnchor = CMTime.zero
+  func record(milliseconds: Int, displayTime: CMTime) {
+    mediaAnchor = CMTime(value: CMTimeValue(milliseconds), timescale: 1000)
+    displayAnchor = displayTime
+  }
+  func range(duration: Double, now: CMTime, transitioning: Bool) -> CMTimeRange {
+    let start = displayAnchor - mediaAnchor
+    let length = duration.isFinite ? max(0, duration) : 0
+    // One second protects the EOF notification -> next-item request boundary.
+    let proposed = start + CMTime(seconds: length + 1, preferredTimescale: 1000)
+    let minimum = now + CMTime(seconds: transitioning ? 60 : 1, preferredTimescale: 1000)
+    let end = CMTimeCompare(proposed, minimum) >= 0 ? proposed : minimum
+    return CMTimeRange(start: start, duration: end - start)
+  }
+}
+// END PiP playback timeline
+
 /// 画中画帧泵：把 Dart 侧送来的 BGRA 像素包成 `CMSampleBuffer` 交给
 /// `AVSampleBufferDisplayLayer` 上屏。
 ///
@@ -25,7 +46,7 @@ final class PipFramePump {
   private var poolWidth = 0
   private var poolHeight = 0
   private var timebase: CMTimebase?
-  private var timelineReady = false
+  private var timeline = PipPlaybackTimeline()
   private var playing = true
   private var playbackRate = 1.0
   func setPlaybackState(playing: Bool, rate: Double = 1) {
@@ -34,16 +55,14 @@ final class PipFramePump {
     if let timebase = timebase { CMTimebaseSetRate(timebase, rate: playing ? playbackRate : 0) }
   }
   private func presentationTime(_ milliseconds: Int) -> CMTime {
-    let media = CMTime(value: CMTimeValue(milliseconds), timescale: 1000)
-    guard let timebase = timebase else { return media }
-    let current = CMTimebaseGetTime(timebase)
-    if !timelineReady || abs(CMTimeGetSeconds(current - media)) > 2 {
-      displayLayer?.flush()
-      CMTimebaseSetTime(timebase, time: media)
-      CMTimebaseSetRate(timebase, rate: playing ? playbackRate : 0)
-      timelineReady = true
-    }
-    return CMTimebaseGetTime(timebase)
+    let current = timebase.map { CMTimebaseGetTime($0) } ?? .zero
+    timeline.record(milliseconds: milliseconds, displayTime: current)
+    return current
+  }
+
+  func playbackRange(duration: Double, transitioning: Bool) -> CMTimeRange {
+    timeline.range(duration: duration, now: timebase.map { CMTimebaseGetTime($0) } ?? .zero,
+                   transitioning: transitioning)
   }
 
 
@@ -65,9 +84,9 @@ final class PipFramePump {
       let clock = clock {
       timebase = clock
       layer.controlTimebase = clock
+      CMTimebaseSetTime(clock, time: .zero)
       CMTimebaseSetRate(clock, rate: playing ? playbackRate : 0)
     }
-    timelineReady = false
     displayLayer = layer
     return true
   }
@@ -77,7 +96,7 @@ final class PipFramePump {
     displayLayer?.flushAndRemoveImage()
     displayLayer?.removeFromSuperlayer()
     displayLayer = nil
-    timebase = nil; timelineReady = false
+    timebase = nil; timeline = PipPlaybackTimeline()
     pool = nil
     poolWidth = 0
     poolHeight = 0
@@ -161,7 +180,7 @@ final class PipFramePump {
     let extent = image.extent
     guard extent.width > 0, extent.height > 0 else { return false }
     image = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
-    let scale = min(1.0, min(960.0 / extent.width, 540.0 / extent.height))
+    let scale = min(1.0, min(1280.0 / extent.width, 720.0 / extent.height))
     image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
     let width = max(1, Int(image.extent.width)), height = max(1, Int(image.extent.height))
     guard let buffer = makePixelBuffer(width: width, height: height) else { return false }
@@ -319,6 +338,9 @@ final class PipDanmakuRenderer {
     let region = rows > 0 ? available : min(available, Double(height) * value("displayArea", 0.5))
     let count = min(rows > 0 ? rows : 64, Int(max(0, region - topInset) / rowHeight))
     guard count > 0, let context = CGContext(data: base, width: width, height: height, bitsPerComponent: 8, bytesPerRow: stride, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else { return }
+    context.setAllowsAntialiasing(true)
+    context.setShouldAntialias(true)
+    context.interpolationQuality = .high
     context.translateBy(x: 0, y: CGFloat(height)); context.scaleBy(x: 1, y: -1)
     context.clip(to: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
     UIGraphicsPushContext(context)

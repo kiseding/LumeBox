@@ -209,30 +209,68 @@ void main() {
     buffer.dispose();
   });
 
-  test(
-    'manual episode switch can stop waiting for speculative parsing',
-    () async {
-      final source = _Source()..pending = Completer<ChapterContent?>();
-      final buffer = NextEpisodeBuffer();
-      final task = buffer.prepare(
+  test('manual switch shares in-flight parsing instead of canceling and starting again', () async {
+    final source = _Source()..pending = Completer<ChapterContent?>();
+    final buffer = NextEpisodeBuffer();
+    final task = buffer.prepare(
+      target,
+      settings,
+      () async => source,
+      (_) => _Player(),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      await buffer.takeWhenReady(
         target,
-        settings,
-        () async => source,
-        (_) => _Player(),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(
-        await buffer.takeWhenReady(
-          target,
-          1,
-          settings.kernel,
-          wait: const Duration(milliseconds: 10),
-        ),
-        isNull,
-      );
-      await task;
-      source.pending!.complete(null);
-      buffer.dispose();
-    },
-  );
+        1,
+        settings.kernel,
+        wait: const Duration(milliseconds: 10),
+      ),
+      isNull,
+    );
+    final resolved = buffer.resolvedWhenReady(target, 1, settings.kernel);
+    source.pending!.complete(
+      VideoContent(url: Uri.parse('https://example.test/c2.mp4')),
+    );
+    expect((await resolved)?.chapter.id, 'c2');
+    await task;
+    expect(source.reads, 1);
+    buffer.dispose();
+  });
+  test('resolved content survives a slow native load and clear unblocks the next generation', () async {
+    final source = _Source();
+    final slow = _Player()..pending = Completer<void>();
+    final buffer = NextEpisodeBuffer();
+    final pending = buffer.prepare(
+      target,
+      settings,
+      () async => source,
+      (_) => slow,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      await buffer.takeWhenReady(
+        target,
+        1,
+        settings.kernel,
+        wait: const Duration(milliseconds: 1),
+      ),
+      isNull,
+    );
+    expect(slow.disposals, 0);
+    expect(
+      (await buffer.resolvedWhenReady(target, 1, settings.kernel))?.index,
+      1,
+    );
+    expect(source.reads, 1);
+    await buffer.clear();
+    final fresh = _Player();
+    await buffer.prepare(target, settings, () async => source, (_) => fresh);
+    slow.pending!.complete();
+    await pending;
+    expect(buffer.take(target, 1, settings.kernel)?.player, same(fresh));
+    expect(slow.disposals, 1);
+    await fresh.dispose();
+    buffer.dispose();
+  });
 }

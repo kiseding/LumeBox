@@ -5,14 +5,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
-import '../../core/player/abstract_player.dart';
 import '../../core/reading/reading.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../download/local_download_export.dart';
 import '../settings/settings_ui.dart';
-import '../video/offline_video_server.dart';
 import '../video/video_download_center.dart';
 import '../video/video_player_page.dart';
+import '../video/video_play_target.dart';
 import 'comic_download_center.dart';
 import 'comic_reader_page.dart';
 import 'offline_comic_source.dart';
@@ -34,7 +33,7 @@ class _DownloadCenterPageState extends State<DownloadCenterPage> {
   void initState() {
     super.initState();
     center.boot();
-    videos.boot();
+    videos.boot().ignore(); // The download list displays restore errors and offers retry.
   }
 
   Future<void> _perform(Future<void> Function() action) async {
@@ -91,36 +90,51 @@ class _DownloadCenterPageState extends State<DownloadCenterPage> {
   }
 
   Future<void> _play(VideoDownloadTask task) async {
-    final file = videos.localFile(task);
-    if (!await file.exists()) throw StateError('本地文件不存在，请重新下载');
-    OfflineVideoServer? server;
+    final route = ModalRoute.of(context);
+    final playback = await videos.completedPlayback(
+      task.sourceId,
+      task.itemId,
+      task.chapterId,
+      section: task.section,
+    );
     try {
-      final uri = task.fileName.endsWith('.m3u8')
-          ? (server = await OfflineVideoServer.open(
-              Directory(videos.folder(task)),
-            )).uri
-          : file.uri;
-      if (!mounted) return;
-      final media = PlayerMedia(
-        uri: uri,
-        title: '${task.title} · ${task.chapterTitle}',
+      if (!mounted || route?.isCurrent == false) return;
+      if (playback == null) throw StateError('本地文件不存在，请重新下载');
+      final media = playback.media('${task.title} · ${task.chapterTitle}');
+      final library = await ReadingLibrary.open(task.section);
+      if (!mounted || route?.isCurrent == false) return;
+      final target = VideoPlayTarget(
+        sourceId: task.sourceId,
+        itemId: task.itemId,
+        title: task.title,
+        chapterIndex: task.chapterIndex,
+        chapterId: task.chapterId,
+        chapterTitle: task.chapterTitle,
       );
       final prepared = await preparePlaybackRoute(
         media,
-        stillActive: () => mounted,
+        library: library,
+        target: target,
+        stillActive: () => mounted && route?.isCurrent != false,
       );
-      if (!mounted) {
+      if (!mounted || route?.isCurrent == false) {
         await prepared?.discard();
         return;
       }
       await Navigator.push(
         context,
         MaterialPageRoute<void>(
-          builder: (_) => VideoPlayerPage(media: media, prelaunch: prepared),
+          builder: (_) => VideoPlayerPage(
+            media: media,
+            prelaunch: prepared,
+            library: library,
+            sourceManager: task.sourceManager,
+            target: target,
+          ),
         ),
       );
     } finally {
-      await server?.close();
+      await playback?.close();
     }
   }
 
@@ -238,7 +252,9 @@ class _DownloadCenterPageState extends State<DownloadCenterPage> {
           if (_busy) const LinearProgressIndicator(),
           if (center.storageError != null) Text(center.storageError!),
           if (videos.storageError != null) Text(videos.storageError!),
-          if (videos.tasks.isEmpty &&
+          if (videos.needsRestore)
+            TextButton(onPressed: () => videos.boot().ignore(), child: const Text('重新读取视频下载')),
+          if (!videos.needsRestore && videos.tasks.isEmpty &&
               !center.tasks.any((t) => t.indices.isNotEmpty))
             const GlassCard(
               padding: EdgeInsets.all(24),
@@ -308,9 +324,7 @@ class _DownloadCenterPageState extends State<DownloadCenterPage> {
                               onPressed: () => videos.resume(task),
                               child: const Text('合并为 MP4'),
                             ),
-                          if (!task.running &&
-                              (task.state == 'done' ||
-                                  task.hasLocalPlaylist)) ...[
+                          if (task.canPlayOffline) ...[
                             TextButton(
                               onPressed: _busy
                                   ? null

@@ -19,7 +19,7 @@ void main() {
     expect(pip['rows'], 3);
     expect(pip['maxOnScreen'], 6);
     expect(pip['maxPerSecond'], 4);
-    expect(pip['fontScale'], 1.5);
+    expect(pip['fontScale'], 1.8);
     expect(pip['strokeWidth'], .8);
     expect(pip['lineSpacing'], 1.5);
     expect(main.rows, 8);
@@ -33,6 +33,7 @@ void main() {
       pipEnabled: false,
     ).toPipJson();
     expect(small['maxOnScreen'], 2);
+    expect(small['fontScale'], greaterThanOrEqualTo(1.15));
     expect(small['maxPerSecond'], 2);
     expect(small['strokeWidth'], 0);
     expect(small['opacity'], .5);
@@ -143,6 +144,20 @@ void main() {
       expect(DanmakuTrack.parse(null).isEmpty, isTrue);
       expect(DanmakuTrack.parse('字符串').isEmpty, isTrue);
       expect(DanmakuTrack.parse(<String, Object?>{'foo': 1}).isEmpty, isTrue);
+    });
+    test('坏的数字字段仅影响当前条目，超出 Duration 范围的时间不会绕回开头', () {
+      final track = DanmakuTrack.parse([
+        {'time': double.nan, 'text': 'bad time'},
+        {'t': 'Infinity', 'text': 'bad string'},
+        {'timeSeconds': '1e308', 'text': 'overflow'},
+        {'time': 9223372036854776, 'text': 'duration overflow'},
+        {'time': -1, 'text': 'negative'},
+        {'time': 1500, 'text': '正常', 'color': double.nan, 'size': 'NaN'},
+      ]);
+      expect(track.length, 1);
+      expect(track.items.single.time.inMilliseconds, 1500);
+      expect(track.items.single.color, 0xffffff);
+      expect(track.items.single.fontSize, 1.0);
     });
 
     test('按时间排序：输入的乱序会被理顺', () {

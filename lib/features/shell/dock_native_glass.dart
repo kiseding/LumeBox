@@ -22,6 +22,7 @@ class DockNativeGlass extends StatefulWidget {
     this.tintOpacity = .06,
     this.reduceTransparency = false,
     this.materialOpacity = 1,
+    this.brightness,
   });
 
   static const String viewType = 'lumebox/glass_backdrop';
@@ -38,6 +39,7 @@ class DockNativeGlass extends StatefulWidget {
   final double tintOpacity;
   final bool reduceTransparency;
   final double materialOpacity;
+  final Brightness? brightness;
 
   @override
   State<DockNativeGlass> createState() => _DockNativeGlassState();
@@ -50,7 +52,7 @@ class _DockNativeGlassState extends State<DockNativeGlass> {
   Map<String, Object?> get _configuration => <String, Object?>{
     'style': widget.style.name,
     'cornerRadius': widget.cornerRadius,
-    'brightness': Theme.of(context).brightness.name,
+    'brightness': (widget.brightness ?? Theme.of(context).brightness).name,
     'reduceTransparency': widget.reduceTransparency,
     'tintColor': widget.tintColor.toARGB32(),
     'tintOpacity': widget.tintOpacity,
@@ -94,19 +96,8 @@ class _DockNativeGlassState extends State<DockNativeGlass> {
   @override
   Widget build(BuildContext context) {
     if (!DockNativeGlass.supported) return const SizedBox.expand();
-    final route = ModalRoute.of(context);
-    final animation = route?.animation;
-    return AnimatedBuilder(
-      animation: animation ?? const AlwaysStoppedAnimation<double>(1),
-      builder: (context, child) => Offstage(
-        offstage:
-            route?.isCurrent == false ||
-            !TickerMode.valuesOf(context).enabled ||
-            (animation != null &&
-                animation.status != AnimationStatus.completed),
-        child: child,
-      ),
-      child: IgnorePointer(
+    return NativeOverlayView(
+      builder: (_) => IgnorePointer(
         child: UiKitView(
           viewType: DockNativeGlass.viewType,
           creationParams: _configuration,
@@ -114,6 +105,31 @@ class _DockNativeGlassState extends State<DockNativeGlass> {
           onPlatformViewCreated: _onPlatformViewCreated,
         ),
       ),
+    );
+  }
+}
+
+/// Keep covered UIKit views out of a popup's composition and hit testing.
+class NativeOverlayView extends StatelessWidget {
+  const NativeOverlayView({super.key, required this.builder});
+  final WidgetBuilder builder;
+  @override
+  Widget build(BuildContext context) {
+    final route = ModalRoute.of(context);
+    final animation = route?.animation;
+    final ticking = TickerMode.valuesOf(context).enabled;
+    return AnimatedBuilder(
+      animation: animation ?? const AlwaysStoppedAnimation<double>(1),
+      builder: (context, _) {
+        if (!ticking ||
+            route?.isCurrent == false ||
+            route?.offstage == true ||
+            (animation != null &&
+                animation.status != AnimationStatus.completed)) {
+          return const SizedBox.expand();
+        }
+        return builder(context);
+      },
     );
   }
 }

@@ -38,6 +38,28 @@ String? playbackDirectionFromDimensions(Object? width, Object? height) {
   return w < h ? 'portrait' : 'landscape';
 }
 
+/// Metadata only; repeated warm-up/entry requests share the native inspection.
+Future<String?> inspectPlaybackEntryDirection(PlayerMedia media) async {
+  final request = PlaybackPreferenceWiring.applyUserAgent(
+    media,
+    PlayerExperienceStore.current,
+  );
+  final headers = Platform.isIOS
+      ? await IosVerifiedWebView.resourceHeaders(
+          media.uri.toString(),
+          request.headers ?? const {},
+        )
+      : request.headers;
+  final portrait = await HighestHls.entryIsPortrait(media.uri, headers);
+  if (portrait != null) return portrait ? 'portrait' : 'landscape';
+  final tracks = await const MediaTrackProbe().inspect(
+    media.uri,
+    headers: headers ?? const {},
+    includeDimensions: true,
+  );
+  return playbackDirectionFromDimensions(tracks.width, tracks.height);
+}
+
 /// Entry preflight uses the same UA and verified resource cookies as playback.
 Future<void> preparePlaybackEntry(
   PlayerPrelaunch prelaunch,
@@ -131,6 +153,7 @@ Future<PlayerPrelaunch?> preparePlaybackRoute(
   String? fallbackDirection,
   bool Function()? stillActive,
 }) async {
+  // Both appearances share this engine handoff and entry orientation.
   const catalog = PlatformPlayerKernelCatalog();
   final available = PlayerKernel.values.where(catalog.isAvailable).toList();
   if (prelaunch == null && available.isEmpty) return null;
@@ -158,20 +181,12 @@ Future<PlayerPrelaunch?> preparePlaybackRoute(
     if (PlaybackOrientationController.instance.orientation ==
             PlaybackOrientation.auto &&
         direction == null) {
-      // Keep the preparation owned by the prelaunch. The route may paint while
-      // it loads; take() joins that same task rather than creating another player.
-      final earlyDirection = Completer<void>();
-      final preparation = preparePlaybackEntry(
-        entry,
-        media,
-        settings.copyWith(kernel: entry.kernel),
-        onEarlyDirection: (value) {
-          direction = value;
-          if (!earlyDirection.isCompleted) earlyDirection.complete();
-        },
-      );
-      await Future.any([preparation, earlyDirection.future])
-          .timeout(const Duration(milliseconds: 350), onTimeout: () {});
+      // Inspect tracks without creating a second player or decoding a frame.
+      // A slow/unavailable server keeps the current direction instead of
+      // guessing landscape and rotating a portrait short twice.
+      direction = await inspectPlaybackEntryDirection(media)
+          .timeout(const Duration(seconds: 2), onTimeout: () => null)
+          .catchError((Object _) => null);
     }
     if (stillActive != null && !stillActive()) {
       await entry.discard();

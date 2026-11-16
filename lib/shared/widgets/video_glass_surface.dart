@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../core/theme/frosted_settings.dart';
+import '../../features/shell/dock_native_glass.dart';
 import 'frosted_glass_widget.dart';
 import 'native_glass_preview.dart';
 
@@ -16,6 +17,8 @@ class VideoGlassSurface extends StatelessWidget {
     this.dark = false,
     this.materialOpacity = opacity,
     this.filledOptions = false,
+    this.nativeGlass = true,
+    this.preferNative = false,
   });
 
   static const tint = Colors.white;
@@ -27,6 +30,10 @@ class VideoGlassSurface extends StatelessWidget {
   final bool dark;
   final double materialOpacity;
   final bool filledOptions;
+  final bool nativeGlass;
+
+  /// Floating detail controls use system glass independently of preview settings.
+  final bool preferNative;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +44,11 @@ class VideoGlassSurface extends StatelessWidget {
         MediaQuery.highContrastOf(context) ||
         MediaQuery.of(context).accessibleNavigation ||
         FrostedSettings.instance.reduceTransparency;
-    final native = !reduced && NativeGlassPreview.enabledOf(context);
+    final systemGlass = preferNative && DockNativeGlass.supported;
+    final native =
+        nativeGlass &&
+        !reduced &&
+        (systemGlass || NativeGlassPreview.enabledOf(context));
     final scheme = ColorScheme.fromSeed(
       seedColor: inherited.colorScheme.primary,
       brightness: dark ? Brightness.dark : Brightness.light,
@@ -100,7 +111,14 @@ class VideoGlassSurface extends StatelessWidget {
         alpha: reduced ? .97 : materialOpacity,
       ),
     );
-    if (native) {
+    if (native && systemGlass) {
+      background = DockNativeGlass(
+        borderRadius: BorderRadius.circular(radius),
+        cornerRadius: radius,
+        tintOpacity: 0,
+        brightness: dark ? Brightness.dark : Brightness.light,
+      );
+    } else if (native) {
       background = FrostedGlassWidget(
         radius: radius,
         nativeGlass: true,
@@ -120,6 +138,16 @@ class VideoGlassSurface extends StatelessWidget {
       child: Stack(
         fit: StackFit.passthrough,
         children: [
+          // Flutter owns a readable base even while UIKit is transitioning or
+          // cannot sample the video texture. Text never sits directly on video.
+          if (native && !systemGlass)
+            Positioned.fill(
+              child: ColoredBox(
+                color: (dark ? const Color(0xFF202428) : tint).withValues(
+                  alpha: materialOpacity,
+                ),
+              ),
+            ),
           Positioned.fill(child: background),
           if (!native)
             Positioned.fill(
@@ -175,14 +203,39 @@ class VideoGlassScope extends InheritedWidget {
 /// Keep Flutter's popup route positioning, dismissal and result handling, while
 /// rendering all entries over a single backdrop instead of one filter per row.
 List<PopupMenuEntry<T>> videoGlassMenuEntries<T>(
-  List<PopupMenuEntry<T>> entries,
-) => [_VideoGlassMenuEntry<T>(entries)];
+  List<PopupMenuEntry<T>> entries, {
+  double radius = 28,
+  double materialOpacity = VideoGlassSurface.opacity,
+  double verticalPadding = 8,
+  bool dark = false,
+  bool preferNative = false,
+}) => [
+  _VideoGlassMenuEntry<T>(
+    entries,
+    radius,
+    materialOpacity,
+    verticalPadding,
+    dark,
+    preferNative,
+  ),
+];
 
 class _VideoGlassMenuEntry<T> extends PopupMenuEntry<T> {
-  const _VideoGlassMenuEntry(this.entries);
+  const _VideoGlassMenuEntry(
+    this.entries,
+    this.radius,
+    this.materialOpacity,
+    this.verticalPadding,
+    this.dark,
+    this.preferNative,
+  );
   final List<PopupMenuEntry<T>> entries;
+  final double radius, materialOpacity, verticalPadding;
+  final bool dark, preferNative;
   @override
-  double get height => entries.fold(0, (sum, entry) => sum + entry.height);
+  double get height =>
+      entries.fold(0.0, (sum, entry) => sum + entry.height) +
+      verticalPadding * 2;
   @override
   bool represents(T? value) => false;
   @override
@@ -193,8 +246,12 @@ class _VideoGlassMenuEntry<T> extends PopupMenuEntry<T> {
 class _VideoGlassMenuEntryState<T> extends State<_VideoGlassMenuEntry<T>> {
   @override
   Widget build(BuildContext context) => VideoGlassSurface(
+    preferNative: widget.preferNative,
+    radius: widget.radius,
+    materialOpacity: widget.materialOpacity,
+    dark: widget.dark,
     child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.symmetric(vertical: widget.verticalPadding),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,

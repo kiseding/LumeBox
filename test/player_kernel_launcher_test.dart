@@ -28,6 +28,69 @@ void main() {
   setUp(() => PlayerFactory.clearMpvInitFailure());
   tearDown(() => PlayerFactory.clearMpvInitFailure());
 
+  for (final portrait in [false, true]) {
+    test('网络 MP4 在入场前读取真实方向并复用后台探测：portrait=$portrait', () async {
+      final root = await Directory.systemTemp.createTemp('entry-direction-');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const tracks = MethodChannel('lumebox/mediaTracks');
+      const paths = MethodChannel('plugins.flutter.io/path_provider');
+      messenger.setMockMethodCallHandler(paths, (_) async => root.path);
+      final directions = <Object?>[];
+      var probes = 0;
+      messenger.setMockMethodCallHandler(tracks, (call) async {
+        probes++;
+        expect((call.arguments as Map)['includeDimensions'], true);
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        return {
+          'known': true,
+          'video': true,
+          'width': portrait ? 720 : 1920,
+          'height': portrait ? 1280 : 1080,
+        };
+      });
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'SystemChrome.setPreferredOrientations') {
+          directions.add(call.arguments);
+        }
+        return null;
+      });
+      addTearDown(() async {
+        ReadingLibrary.disposeAll();
+        ReadingStore.disposeAll();
+        await SectionScope.closeAll();
+        messenger.setMockMethodCallHandler(tracks, null);
+        messenger.setMockMethodCallHandler(paths, null);
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+        await root.delete(recursive: true);
+      });
+      PlaybackOrientationController.instance.resetForTesting();
+      final library = await ReadingLibrary.open(Section.video);
+      final media = PlayerMedia(
+        uri: Uri.parse('https://entry.test/$portrait.mp4'),
+      );
+      final background = inspectPlaybackEntryDirection(media);
+      final player = _PreflightPlayer();
+      final entry = PlayerPrelaunch.start(
+        PlayerKernel.avplayer,
+        factory: (_) => player,
+      );
+      await preparePlaybackRoute(media, library: library, prelaunch: entry);
+      expect(await background, portrait ? 'portrait' : 'landscape');
+      expect(probes, 1, reason: '后台预检与点击播放共享同一请求');
+      expect(directions, [
+        portrait
+            ? ['DeviceOrientation.portraitUp']
+            : [
+                'DeviceOrientation.landscapeLeft',
+                'DeviceOrientation.landscapeRight',
+              ],
+      ]);
+      expect(player.loads, 0, reason: '尺寸探测不创建第二条播放下载链');
+      await entry.discard();
+    });
+  }
+
   test('预启动装载返回错误快照时丢弃实例，不标记媒体已准备', () async {
     final player = _FailedMediaPlayer();
     final prelaunch = PlayerPrelaunch.start(
@@ -140,7 +203,7 @@ void main() {
     await player.dispose();
   });
 
-  test('route enters before a pending media load and later takes the same instance', () async {
+  test('route takes the kernel without starting or waiting on native media preloading', () async {
     final root = await Directory.systemTemp.createTemp('lume-entry-budget-');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -175,10 +238,13 @@ void main() {
     );
     expect(entry, same(prelaunch));
     expect(player.pending!.isCompleted, false);
-    player.pending!.complete();
     expect((await prelaunch.take())?.player, same(player));
-    expect(prelaunch.hasPreparedMedia(media), true);
-    expect(player.loads, 1);
+    expect(prelaunch.hasPreparedMedia(media), false);
+    expect(
+      player.loads,
+      0,
+      reason: 'media loads once in the visible player page',
+    );
     await player.dispose();
     const target = VideoPlayTarget(
       sourceId: 'source',

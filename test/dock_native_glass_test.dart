@@ -244,7 +244,7 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-  testWidgets('被普通弹窗盖住时隐藏原生玻璃，关闭后复用平台视图', (tester) async {
+  testWidgets('弹窗覆盖时移除底层平台视图，关闭后恢复玻璃', (tester) async {
     final messenger = tester.binding.defaultBinaryMessenger;
     var creations = 0;
     messenger.setMockMethodCallHandler(SystemChannels.platform_views, (
@@ -291,7 +291,7 @@ void main() {
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
     expect(find.byType(UiKitView), findsOneWidget);
-    expect(creations, 1);
+    expect(creations, 2);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   test('修改任一玻璃效果开关保留降低透明度偏好', () {

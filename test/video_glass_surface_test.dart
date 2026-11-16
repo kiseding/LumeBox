@@ -2,14 +2,66 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/features/video/danmaku/danmaku_panel.dart';
 import 'package:lume_box/features/video/player_settings_panel.dart';
 import 'package:lume_box/shared/widgets/native_glass_surfaces.dart';
 import 'package:lume_box/shared/widgets/video_glass_surface.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
+import 'package:lume_box/features/shell/dock_native_glass.dart';
 
 void main() {
+  testWidgets('详情浮动控件默认使用无额外底色的系统玻璃，并保留点击与无障碍回退', (tester) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform_views,
+      (_) async => null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        null,
+      ),
+    );
+    var taps = 0;
+    Widget surface({bool highContrast = false}) => MaterialApp(
+      home: MediaQuery(
+        data: MediaQueryData(highContrast: highContrast),
+        child: Center(
+          child: VideoGlassSurface(
+            preferNative: true,
+            child: TextButton(
+              onPressed: () => taps++,
+              child: const Text('继续看'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(surface());
+    await tester.pumpAndSettle();
+    final native = tester.widget<DockNativeGlass>(find.byType(DockNativeGlass));
+    expect(native.tintOpacity, 0);
+    expect(native.materialOpacity, 1);
+    expect(find.byType(BackdropFilter), findsNothing);
+    final surfaceFinder = find.byType(VideoGlassSurface);
+    expect(
+      find.descendant(of: surfaceFinder, matching: find.byType(DecoratedBox)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: surfaceFinder, matching: find.byType(ColoredBox)),
+      findsNothing,
+    );
+    await tester.tap(find.text('继续看'));
+    expect(taps, 1);
+    await tester.pumpWidget(surface(highContrast: true));
+    await tester.pumpAndSettle();
+    expect(find.byType(DockNativeGlass), findsNothing);
+    expect(find.byType(BackdropFilter), findsNothing);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('面板恢复选项底色，普通菜单仍透明', (tester) async {
     for (final filled in [false, true]) {
       await tester.pumpWidget(
@@ -153,40 +205,48 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('菜单条目共用单个玻璃底座，保持线路选择和返回结果', (tester) async {
-    String? selected;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: PopupMenuButton<String>(
-              key: const Key('menu'),
-              color: Colors.transparent,
-              elevation: 0,
-              menuPadding: EdgeInsets.zero,
-              onSelected: (value) => selected = value,
-              itemBuilder: (_) => videoGlassMenuEntries<String>([
-                const CheckedPopupMenuItem(
-                  value: 'a',
-                  checked: true,
-                  child: Text('线路A'),
-                ),
-                const PopupMenuItem(value: 'b', child: Text('线路B')),
-              ]),
+  for (final native in [false, true]) {
+    testWidgets('菜单条目共用单个玻璃底座，保持线路选择和返回结果：原生 $native', (tester) async {
+      String? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: PopupMenuButton<String>(
+                key: const Key('menu'),
+                color: Colors.transparent,
+                elevation: 0,
+                menuPadding: EdgeInsets.zero,
+                onSelected: (value) => selected = value,
+                itemBuilder: (_) => videoGlassMenuEntries<String>([
+                  const CheckedPopupMenuItem(
+                    value: 'a',
+                    checked: true,
+                    child: Text('线路A'),
+                  ),
+                  const PopupMenuItem(value: 'b', child: Text('线路B')),
+                ], preferNative: native),
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.byKey(const Key('menu')));
-    await tester.pumpAndSettle();
-    expect(find.byType(BackdropFilter), findsOneWidget);
-    await tester.tap(find.text('线路B'));
-    await tester.pumpAndSettle();
-    expect(selected, 'b');
-    expect(find.byType(VideoGlassSurface), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
+      );
+      await tester.tap(find.byKey(const Key('menu')));
+      await tester.pumpAndSettle();
+      expect(find.byType(BackdropFilter), findsOneWidget);
+      expect(
+        tester
+            .widget<VideoGlassSurface>(find.byType(VideoGlassSurface))
+            .preferNative,
+        native,
+      );
+      await tester.tap(find.text('线路B'));
+      await tester.pumpAndSettle();
+      expect(selected, 'b');
+      expect(find.byType(VideoGlassSurface), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('二三级设置和对话框保持透明底层，关闭返回仍正常', (tester) async {
     await tester.pumpWidget(

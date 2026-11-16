@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lume_box/core/js/lume_js_engine.dart';
+import 'package:lume_box/core/music/music_session.dart';
 import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
@@ -103,6 +104,31 @@ void main() {
       )
       .first;
 
+  testWidgets('迷你播放器跟随导航的自定义宽度与左右偏移', (tester) async {
+    await pumpShell(tester);
+    addTearDown(() => MusicSession.visible.value = false);
+    MusicSession.visible.value = true;
+    await tester.pumpAndSettle();
+    for (final appearance in [
+      const DockAppearance(),
+      const DockAppearance(
+        horizontalMargin: 30,
+        preferredWidth: 320,
+        horizontalOffset: 12,
+      ),
+    ]) {
+      await ShellSettingsController.instance.setAppearance(appearance);
+      await tester.pumpAndSettle();
+      final mini = tester.getRect(
+        find.byKey(const Key('shell-music-mini-player')),
+      );
+      final dock = tester.getRect(dockCapsule());
+      expect(mini.left, closeTo(dock.left, .1));
+      expect(mini.right, closeTo(dock.right, .1));
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   /// 挂一个**真实板块页**（视频：标题 + 右上角图标 + 书架/探索页签）。
   Future<void> pumpBoard(WidgetTester tester) async {
     tester.view.physicalSize = const Size(width * 3, height * 3);
@@ -166,7 +192,7 @@ void main() {
     }
   });
 
-  testWidgets('四项导航共用胶囊，搜索随尺寸和位移同步且可点击', (tester) async {
+  testWidgets('板块搜索在同一胶囊内并随 Dock 尺寸对齐', (tester) async {
     await pumpShell(tester);
     await tester.pumpWidget(
       MaterialApp(
@@ -180,59 +206,35 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final search = find
-        .ancestor(
-          of: find.descendant(
-            of: find.byKey(AppShell.dockKey),
-            matching: find.text('搜索'),
-          ),
-          matching: find.byType(InkWell),
-        )
-        .first;
-    var nav = tester.getRect(dockCapsule());
-    var button = tester.getRect(search);
-    expect(button.height, closeTo(nav.height, .01));
-    expect(button.center.dy, closeTo(nav.center.dy, .01));
-    expect(nav.contains(button.center), true);
-    expect(find.byKey(const ValueKey('browse-search-surface')), findsNothing);
+    final search = find.descendant(
+      of: find.byKey(AppShell.dockKey),
+      matching: find.text('搜索'),
+    );
+    final initial = tester.getCenter(search);
+    expect(tester.getRect(dockCapsule()).contains(initial), true);
     expect(
       tester
           .widget<ShellDockBar>(find.byType(ShellDockBar))
           .entries
           .map((e) => e.id),
-      ['comic', 'video', 'settings', 'search'],
+      ['comic', 'video', 'music', 'settings', 'search'],
     );
+    expect(find.byKey(const ValueKey('browse-search-surface')), findsNothing);
     await ShellSettingsController.instance.setAppearance(
       const DockAppearance(height: 78, safeGap: 14, horizontalMargin: 18),
     );
-    FloatingModules.instance.set(
-      FloatingModule.dock,
-      FloatingModules.instance.style(FloatingModule.dock).copyWith(x: 3, y: -5),
+    await tester.pumpAndSettle();
+    expect(
+      tester.getCenter(search).dy,
+      greaterThan(tester.getRect(dockCapsule()).center.dy),
     );
-    addTearDown(() => FloatingModules.instance.reset(FloatingModule.dock));
-    await tester.pumpAndSettle();
-    nav = tester.getRect(dockCapsule());
-    button = tester.getRect(search);
-    expect(button.height, closeTo(78, .01));
-    expect(button.center.dy, closeTo(nav.center.dy, .01));
-    expect(nav.contains(button.center), true);
-    final tab = find
-        .descendant(of: find.byKey(AppShell.dockKey), matching: find.text('视频'))
-        .first;
-    final gesture = await tester.startGesture(tester.getCenter(tab));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 700));
-    var held = tester.getRect(dockCapsule());
-    button = tester.getRect(search);
-    expect(held.contains(button.center), true);
-    await gesture.up();
-    await tester.pumpAndSettle();
     expect(
       tester.getRect(dockCapsule()).contains(tester.getCenter(search)),
       true,
     );
     await tester.tap(search);
     await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, '全局搜索'), findsNothing);
     expect(find.text('搜索范围'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -250,11 +252,7 @@ void main() {
       reason: '胶囊要悬浮在安全区之上 4pt（实测 $gap）',
     );
     // 用户口径第十三次：左右再收窄——外边距 16 → 24，两侧留出明显的空白。
-    expect(
-      capsule.width,
-      closeTo(width - 48, 0.01),
-      reason: '四项共用整个胶囊，不为独立搜索预留空间',
-    );
+    expect(capsule.width, closeTo(width - 48, 0.01), reason: '四个板块和搜索共用整个胶囊');
     expect(capsule.left, closeTo(24, 0.01), reason: '胶囊居中：左侧留白 24');
     // 加宽是**稍微**：两侧仍要留白（不铺满屏宽）。
     expect(capsule.left, greaterThan(0));

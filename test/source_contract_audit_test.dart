@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:lume_box/core/cat/cat_web_parse.dart';
 import 'package:lume_box/core/js/lume_js_engine.dart';
 import 'package:lume_box/core/js/qjs_bindings.dart';
 import 'package:lume_box/core/js/sandbox/sandbox.dart';
@@ -42,6 +43,50 @@ void main() {
       ? null
       : '未找到可用的 quickjs 原生桥（${Qjs.availabilityDetail}）';
   _heavyPageTest(skipReason: nativeSkipReason);
+
+  test('契约审计接受有效网页播放交接，拒绝无效地址和普通脚本错误', () async {
+    Future<_Outcome> content(Object value) => _call(
+      JsDataSource(
+        id: 'web-audit',
+        name: 'web-audit',
+        section: Section.video,
+        runtime: _ContentRuntime(value),
+      ),
+      'content',
+    );
+    for (final flag in ['kind', 'webPlayer', 'webParse']) {
+      final valid = await content({
+        flag: flag == 'kind' ? 'webplayer' : true,
+        'pageUrl': 'https://player.example/watch/1',
+      });
+      expect(valid.kind, _OutcomeKind.ok);
+      expect(valid.label, '网页播放');
+    }
+    for (final url in [
+      '',
+      'javascript:alert(1)',
+      'https://user:pass@player.example/',
+    ]) {
+      final invalid = await content({'kind': 'webplayer', 'pageUrl': url});
+      expect(invalid.kind, _OutcomeKind.other);
+    }
+    final error = await content(
+      const SourceException(SourceErrorKind.callFailed, '该线路需要网页解析'),
+    );
+    expect(error.kind, _OutcomeKind.other);
+  });
+
+  test('缓存枚举保留待审计脚本，忽略网页脚本快照', () async {
+    final cache = await Directory.systemTemp.createTemp('lume-source-audit-');
+    addTearDown(() => cache.delete(recursive: true));
+    for (final path in ['comic/broken.js', 'video/source.js', 'snapshots/player.js']) {
+      await File('${cache.path}/$path').create(recursive: true);
+    }
+    expect(
+      _cachedScripts(cache).map((f) => f.uri.pathSegments.last),
+      ['broken.js', 'source.js'],
+    );
+  });
 
   test('审计：三份订阅里的脚本都能载入、元信息对得上、被拦时抛对标记', () async {
     final scripts = _cachedScripts();
@@ -203,14 +248,17 @@ String _auditSkipReason() =>
     '（从 $lumeSourcesRepo 拉到 .sources-cache/）再审计';
 
 /// 缓存里的全部脚本（按板块目录分好）。
-List<File> _cachedScripts() {
-  final dir = sourceCacheDir;
-  if (!dir.existsSync()) return const <File>[];
-  final files = dir
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.js'))
-      .toList();
+List<File> _cachedScripts([Directory? cache]) {
+  // fetch_sources writes installable scripts directly under each board.
+  // Other cache directories contain site assets, including browser-only JS.
+  final files = <File>[];
+  for (final section in Section.values) {
+    final dir = Directory('${(cache ?? sourceCacheDir).path}/${section.id}');
+    if (!dir.existsSync()) continue;
+    files.addAll(
+      dir.listSync().whereType<File>().where((file) => file.path.endsWith('.js')),
+    );
+  }
   files.sort((a, b) => a.path.compareTo(b.path));
   return files;
 }
@@ -367,6 +415,10 @@ Future<_Outcome> _call(JsDataSource source, String method) async {
       _ => false,
     };
     return _Outcome(_OutcomeKind.ok, empty ? '空结果' : '有数据', '');
+  } on CatWebParseRequired {
+    // JsDataSource validated the URL and emitted the same typed handoff the
+    // player UI consumes. A valid webplayer is part of the source contract.
+    return const _Outcome(_OutcomeKind.ok, '网页播放', '');
   } on SourceException catch (error) {
     final message = error.message;
     if (wafKindOf(message) != null) {
@@ -499,6 +551,20 @@ class _SandboxRuntime implements JsSourceRuntime {
     final result = await _sandbox.call('LumeSource.$method', argument);
     if (result.isOk) return result.value;
     throw SourceException(SourceErrorKind.callFailed, result.error!.toString());
+  }
+}
+
+class _ContentRuntime implements JsSourceRuntime {
+  _ContentRuntime(this.value);
+  final Object value;
+
+  @override
+  Future<Set<String>> contractMethods() async => {'content'};
+
+  @override
+  Future<Object?> call(String method, [Object? argument]) async {
+    if (value is SourceException) throw value;
+    return value;
   }
 }
 

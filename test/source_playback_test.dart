@@ -60,6 +60,10 @@ void main() {
             ?.path,
         '/watch.mp4',
       );
+      for (final suffix in ['wmv', 'ASF']) {
+        final url = 'https://cdn.example/episode.$suffix?sig=fixture';
+        expect(SourcePlayback.itemAddress(url)?.toString(), url);
+      }
       expect(
         SourcePlayback.itemAddress('https://cdn.example/download.php?id=1')
             ?.path,
@@ -193,6 +197,33 @@ void main() {
         SourcePlayback.contentHeaders(content)['Referer'],
         'https://cdn2.example/',
       );
+    });
+
+    test('only the intended origin inherits private headers when selecting a quality', () {
+      final base = Uri.parse('https://cdn.example/video');
+      for (final other in [
+        'https://other.example/video',
+        'https://cdn.example:8443/video',
+        'http://cdn.example/video',
+      ]) {
+        final content = VideoContent(
+          url: base,
+          headers: const {
+            'cOOkie': 'login',
+            'Authorization': 'main',
+            'Proxy-Authorization': 'proxy',
+            'Referer': 'https://site.example/',
+          },
+          qualities: [
+            VideoQuality(label: '480p', url: base),
+            VideoQuality(label: '1080p', url: Uri.parse(other)),
+          ],
+        );
+        final choices = SourcePlayback.contentQualities(content);
+        expect(choices.first.headers, content.headers);
+        expect(choices.last.headers, {'Referer': 'https://site.example/'});
+        expect(SourcePlayback.contentHeaders(content), choices.last.headers);
+      }
     });
   });
 }

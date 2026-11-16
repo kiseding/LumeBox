@@ -8,7 +8,7 @@ final class MediaTrackProbe {
     FlutterMethodChannel(name:"lumebox/mediaTracks",binaryMessenger:messenger)
       .setMethodCallHandler { call,result in
         if call.method == "owner",let owner = call.arguments as? String,
-           ["audioBook","tts","video"].contains(owner) {
+           ["audioBook","tts","video","web_video"].contains(owner) {
           UserDefaults.standard.set(owner,forKey:"lumebox.mediaOwner");result(nil);return
         }
         guard call.method == "inspect",let args = call.arguments as? [String:Any],
@@ -37,7 +37,7 @@ final class MediaTrackProbe {
               "video": videoTrack != nil
             ]
             guard args["includeDimensions"] as? Bool == true,
-              url.isFileURL, let track = videoTrack else {
+              let track = videoTrack else {
               finish(info); return
             }
             Task { @MainActor in

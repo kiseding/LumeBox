@@ -1,6 +1,5 @@
 import 'package:flutter/gestures.dart';
 
-import 'dart:math' as math;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -31,6 +30,8 @@ class BrowseDrawerMotion extends ChangeNotifier {
 
 double browseDrawerWidth(double width) => width;
 
+/// [onDismiss] intercepts scrim/drag dismissal for flows that must save or confirm
+/// first. The owner then pops its route when ready; ordinary drawers omit it.
 Future<T?> showBrowseSideDrawer<T>({
   required BuildContext context,
   required WidgetBuilder builder,
@@ -38,6 +39,7 @@ Future<T?> showBrowseSideDrawer<T>({
   BrowseDrawerMotion? motion,
   bool edgeToggle = false,
   bool useRootNavigator = true,
+  VoidCallback? onDismiss,
 }) async {
   final dock = ShellDockScope.maybeOf(context);
   final token = Object();
@@ -50,6 +52,7 @@ Future<T?> showBrowseSideDrawer<T>({
       motion: motion,
       edgeToggle: edgeToggle,
       useRootNavigator: useRootNavigator,
+      onDismiss: onDismiss,
     );
   } finally {
     dock?.show(token);
@@ -63,9 +66,10 @@ Future<T?> _showBrowseSideDrawer<T>({
   BrowseDrawerMotion? motion,
   required bool edgeToggle,
   required bool useRootNavigator,
+  VoidCallback? onDismiss,
 }) async {
   final navigator = Navigator.of(context, rootNavigator: useRootNavigator);
-  final top = DrawerGeometry.top(context);
+  final top = DrawerGeometry.browseTop(context);
   final reduceMotion = MediaQuery.disableAnimationsOf(context);
   final label = MaterialLocalizations.of(context).modalBarrierDismissLabel;
   final themes = InheritedTheme.capture(from: context, to: navigator.context);
@@ -129,7 +133,10 @@ Future<T?> _showBrowseSideDrawer<T>({
                           child: SafeArea(
                             top: false,
                             bottom: false,
-                            child: Builder(builder: builder),
+                            child: BrowseDrawerGeometry(
+                              top: top,
+                              child: Builder(builder: builder),
+                            ),
                           ),
                         ),
                       ),
@@ -169,6 +176,7 @@ Future<T?> _showBrowseSideDrawer<T>({
       side: side,
       motion: motion,
       edgeToggle: edgeToggle,
+      onDismiss: onDismiss,
       top: top,
       reduceMotion: reduceMotion,
       label: label,
@@ -187,6 +195,7 @@ class _BrowseDrawerRoute<T> extends PopupRoute<T> {
     required this.themes,
     this.motion,
     this.edgeToggle = false,
+    this.onDismiss,
   });
   final WidgetBuilder builder;
   final BrowseDrawerSide side;
@@ -196,6 +205,7 @@ class _BrowseDrawerRoute<T> extends PopupRoute<T> {
   final CapturedThemes themes;
   final BrowseDrawerMotion? motion;
   final bool edgeToggle;
+  final VoidCallback? onDismiss;
   int? edgePointer;
   Offset edgeStart = Offset.zero, edgeTravel = Offset.zero;
   bool fromLeftEdge = false;
@@ -241,6 +251,11 @@ class _BrowseDrawerRoute<T> extends PopupRoute<T> {
 
   void dismiss() {
     if (closing || !isCurrent) return;
+    if (onDismiss != null) {
+      movement.forward();
+      onDismiss!();
+      return;
+    }
     closing = true;
     navigator?.pop();
   }
@@ -268,7 +283,6 @@ class _BrowseDrawerRoute<T> extends PopupRoute<T> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = browseDrawerWidth(constraints.maxWidth);
-        final inset = math.min(top, constraints.maxHeight * .4);
         return themes.wrap(
           AnimatedBuilder(
             animation: animation,
@@ -282,7 +296,10 @@ class _BrowseDrawerRoute<T> extends PopupRoute<T> {
               child: SafeArea(
                 top: false,
                 bottom: false,
-                child: Builder(builder: builder),
+                child: BrowseDrawerGeometry(
+                  top: top,
+                  child: Builder(builder: builder),
+                ),
               ),
             ),
             builder: (context, child) => Listener(
@@ -336,7 +353,7 @@ class _BrowseDrawerRoute<T> extends PopupRoute<T> {
                     ),
                   ),
                   Positioned(
-                    top: inset,
+                    top: top,
                     bottom: 0,
                     left: side == BrowseDrawerSide.left ? 0 : null,
                     right: side == BrowseDrawerSide.right ? 0 : null,

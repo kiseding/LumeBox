@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'lume_icon.dart';
 
-class SourcePickerHeader extends StatelessWidget {
+class SourcePickerHeader extends StatefulWidget {
   const SourcePickerHeader({
     super.key,
     required this.title,
@@ -21,15 +21,38 @@ class SourcePickerHeader extends StatelessWidget {
   final List<Widget> extraActions;
 
   @override
+  State<SourcePickerHeader> createState() => _SourcePickerHeaderState();
+}
+
+class _SourcePickerHeaderState extends State<SourcePickerHeader> {
+  final _query = TextEditingController();
+  bool _searching = false;
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  void _toggleSearch() {
+    setState(() => _searching = !_searching);
+    if (!_searching) {
+      _query.clear();
+      widget.onQueryChanged('');
+      FocusScope.of(context).unfocus();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) => Column(
     children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 8, 0),
+        padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
         child: Row(
           children: [
             Expanded(
               child: Text(
-                title,
+                widget.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -38,41 +61,46 @@ class SourcePickerHeader extends StatelessWidget {
                 ),
               ),
             ),
-            ...extraActions,
+            ...widget.extraActions,
             IconButton(
               tooltip: '源管理',
-              onPressed: onManage,
+              onPressed: widget.onManage,
               icon: const LumeIcon(Icons.tune, slot: 'source_picker.manage'),
             ),
-            addAction,
+            widget.addAction,
             IconButton(
-              tooltip: '关闭',
-              onPressed: () => Navigator.pop(context),
-              icon: const LumeIcon(Icons.close, slot: 'source_picker.close'),
+              tooltip: '搜索源',
+              onPressed: _toggleSearch,
+              isSelected: _searching,
+              icon: const LumeIcon(Icons.search, slot: 'source_picker.search'),
             ),
           ],
         ),
       ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-        child: TextField(
-          onChanged: onQueryChanged,
-          decoration: InputDecoration(
-            hintText: '搜索源名称或订阅包',
-            prefixIcon: const LumeIcon(
-              Icons.search,
-              slot: 'source_picker.search',
+      if (_searching)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+          child: TextField(
+            controller: _query,
+            autofocus: true,
+            onChanged: widget.onQueryChanged,
+            decoration: InputDecoration(
+              hintText: '搜索源名称或订阅包',
+              prefixIcon: const LumeIcon(
+                Icons.search,
+                slot: 'source_picker.search',
+              ),
+              suffixIcon: widget.onSync == null
+                  ? null
+                  : IconButton(
+                      tooltip: '同步本板块订阅',
+                      icon: const Icon(Icons.sync),
+                      onPressed: widget.onSync,
+                    ),
             ),
-            suffixIcon: onSync == null
-                ? null
-                : IconButton(
-                    tooltip: '同步本板块订阅',
-                    icon: const Icon(Icons.sync),
-                    onPressed: onSync,
-                  ),
           ),
         ),
-      ),
+      if (!_searching) const SizedBox(height: 2),
     ],
   );
 }

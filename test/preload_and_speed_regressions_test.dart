@@ -10,7 +10,6 @@ import 'package:lume_box/core/player/buffering.dart';
 import 'package:lume_box/core/player/download_speed.dart';
 import 'package:lume_box/core/player/player_settings.dart';
 import 'package:lume_box/core/player/player_stats.dart';
-import 'package:lume_box/core/player/media_kit_mpv_engine.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/video/next_episode_buffer.dart';
 import 'package:lume_box/features/video/player_hud.dart';
@@ -19,26 +18,6 @@ import 'package:lume_box/features/video/video_play_target.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('MPV缓存终点扣除播放位置，避免把已播放时间当成前向缓冲', () {
-    expect(
-      MediaKitMpvEngine.bufferedAhead(
-        const Duration(seconds: 11),
-        const Duration(seconds: 10),
-      ),
-      const Duration(seconds: 1),
-    );
-    expect(
-      MediaKitMpvEngine.bufferedAhead(
-        const Duration(seconds: 9),
-        const Duration(seconds: 10),
-      ),
-      Duration.zero,
-    );
-    expect(
-      MediaKitMpvEngine.bufferedAhead(null, const Duration(seconds: 10)),
-      isNull,
-    );
-  });
   test('下载计数按采样间隔计算，空闲为0，重置和不可用不产生假读数', () {
     final sampler = DownloadSpeedSampler();
     expect(sampler.sample(1000, Duration.zero), isNull);
@@ -203,6 +182,29 @@ void main() {
     await task;
     expect(buffer.take(target, 1, PlayerKernel.avplayer), isNull);
     expect(player.disposals, 1);
+  });
+
+  test('预载解析后提前请求下一集弹幕，弹幕失败不阻塞播放器', () async {
+    final buffer = NextEpisodeBuffer();
+    addTearDown(buffer.dispose);
+    final source = _Source(), player = _Player();
+    final seen = <String>[];
+    await buffer.prepare(
+      target,
+      const PlayerSettings(),
+      () async => source,
+      (_) => player,
+      preloadExtras: (actualSource, chapter, index) async {
+        expect(actualSource, same(source));
+        expect(index, 1);
+        seen.add(chapter.id);
+        throw StateError('弹幕服务不可用');
+      },
+    );
+    expect(seen, ['e2']);
+    final ready = buffer.take(target, 1, PlayerKernel.avplayer);
+    expect(ready?.player, same(player));
+    await player.dispose();
   });
 
   test('手动下一集等待正在进行的预加载并接手同一个播放器', () async {

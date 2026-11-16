@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../core/reading/chapter_display_order.dart';
 import '../../core/source/source.dart';
 
 /// Route grouping never rewrites chapter IDs: the original source still resolves them.
@@ -40,33 +41,76 @@ abstract final class VideoEpisodeCatalog {
     return chapter.title.replaceFirst(prefix, '').trim();
   }
 
+  static const _ordinal = r'[0-9０-９零〇一二两兩三四五六七八九十百千]+';
+  static const _episodeOrdinal = '$_ordinal(?:[.．点點]$_ordinal)?';
+  static final _season = RegExp(
+    '第\\s*($_ordinal)\\s*季|'
+    r'(?:(?:^|[^a-z0-9])(?:season|s)[ ._-]*|s(?=[0-9]{1,3}e[0-9]))'
+    r'([0-9]{1,3})(?![0-9])',
+    caseSensitive: false,
+  );
+  static final _episode = RegExp(
+    '第\\s*($_episodeOrdinal)\\s*[集话話期]|'
+    '(?:^|[^a-z0-9]|s[0-9]{1,3})(?:episode|ep?)[ ._-]*'
+    r'([0-9]{1,4}(?:[.．][0-9]+(?![0-9a-z]))?)(?![0-9])',
+    caseSensitive: false,
+  );
+  static final _numberOnly = RegExp('^($_episodeOrdinal)(?:集|话|話)?\$');
+  static final _partAfterNumber = RegExp(
+    r'^[\s.·_\-（(【\[]*([上中下])(?:篇|部|段|半(?:集|场|場)?)?(?=$|[\s.·_\-）)】\]])',
+  );
+  static final _preview = RegExp(
+    r'预告|預告|(?:^|[^a-z])(?:trailer|teaser|preview)(?:$|[^a-z])',
+    caseSensitive: false,
+  );
+
+  static String episodePart(String label) {
+    final end = _episode.firstMatch(label)?.end;
+    final part = end == null
+        ? ''
+        : _partAfterNumber.firstMatch(label.substring(end))?.group(1) ?? '';
+    return _preview.hasMatch(label) ? '$part预告' : part;
+  }
+
+  static num? _matchedNumber(RegExpMatch? match) {
+    if (match == null) return null;
+    final digits = match[1] ?? match[2]!;
+    final value = ChapterDisplayOrder.parseNumber(digits);
+    if (value == null || !value.isFinite) return null;
+    return value == value.toInt() ? value.toInt() : value;
+  }
+
+  static int? seasonNumber(String label) =>
+      _matchedNumber(_season.firstMatch(label))?.toInt();
+
+  static ({int? season, num episode})? episodeNumber(String label) {
+    final number = _matchedNumber(
+      _episode.firstMatch(label) ?? _numberOnly.firstMatch(label.trim()),
+    );
+    return number == null
+        ? null
+        : (season: seasonNumber(label), episode: number);
+  }
+
   /// Only explicit episode numbers are comparable; a missing episode never falls back by index.
   static String? episodeKey(SourceChapter chapter) {
     final label = labelOf(chapter);
-    final season = RegExp(
-      r's(\d{1,3})[ ._-]*e(\d{1,4})',
-      caseSensitive: false,
-    ).firstMatch(label);
-    if (season != null) {
-      return '${int.parse(season[1]!)}:${int.parse(season[2]!)}';
-    }
-    final number =
-        RegExp(r'第\s*(\d{1,4})\s*[集话話期]').firstMatch(label) ??
-        RegExp(
-          r'(?:^|[ ._\]-])(?:ep?|episode)[ ._-]*(\d{1,4})(?!\d)',
-          caseSensitive: false,
-        ).firstMatch(label) ??
-        RegExp(r'^(\d{1,4})(?:集|话|話)?$').firstMatch(label);
-    return number == null ? null : '1:${int.parse(number[1]!)}';
+    final number = episodeNumber(label);
+    if (number == null) return null;
+    final part = episodePart(label);
+    final key = '${number.season ?? 1}:${number.episode}';
+    return part.isEmpty ? key : '$key:$part';
   }
 
   static int matchingIndex(
     SourceChapter current,
     List<SourceChapter> candidates,
   ) {
+    final label = labelOf(current);
+    if (label.isEmpty) return -1;
     final exact = [
       for (var i = 0; i < candidates.length; i++)
-        if (labelOf(candidates[i]) == labelOf(current)) i,
+        if (labelOf(candidates[i]) == label) i,
     ];
     if (exact.isNotEmpty) return exact.length == 1 ? exact.single : -1;
     final key = episodeKey(current);
@@ -86,9 +130,12 @@ abstract final class VideoEpisodeCatalog {
         ).hasMatch(label) ||
         label.length > 35 ||
         RegExp(r'^\d+$').hasMatch(label)) {
-      final key = episodeKey(chapter);
-      final number = key == null ? index + 1 : int.parse(key.split(':').last);
-      return '第 ${number.toString().padLeft(2, '0')} 集';
+      final episode = episodeNumber(label);
+      final number = episode?.episode ?? index + 1;
+      final digits = number.toString();
+      final formatted = number < 10 ? '0$digits' : digits;
+      final part = episodePart(label);
+      return '第 $formatted 集${part.isEmpty ? '' : '（$part）'}';
     }
     return label.isEmpty ? '第 ${index + 1} 集' : label;
   }

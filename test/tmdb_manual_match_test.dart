@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lume_box/core/tmdb/tmdb.dart';
 import 'package:lume_box/features/video/tmdb_artwork.dart';
+import 'package:lume_box/shared/widgets/video_glass_surface.dart';
 
 http.Response json(Map<String, dynamic> data) => http.Response(
   jsonEncode(data),
@@ -70,6 +72,55 @@ TmdbSettings configured() => TmdbSettings()
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('匹配弹窗加载和空结果清晰可见，等待超时可重试且不保留半屏空白', (tester) async {
+    final pending = Completer<http.Response>();
+    var retry = false;
+    final client = TmdbClient(
+      configured(),
+      client: MockClient((_) async {
+        if (retry) return json({'results': []});
+        return pending.future;
+      }),
+    );
+    final controller = TmdbDetailController(
+      '背阴山之战',
+      client: client,
+      settings: client.settings,
+      autoLoad: false,
+    );
+    await tester.binding.setSurfaceSize(const Size(440, 956));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showTmdbMatchPicker(context, controller),
+              child: const Text('打开匹配'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开匹配'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('正在搜索 TMDB…'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 21));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('搜索超时'), findsOneWidget);
+    retry = true;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('未找到条目，请修改片名后搜索'), findsOneWidget);
+    expect(tester.getSize(find.byType(VideoGlassSurface)).height, lessThan(500));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    pending.complete(json({'results': []}));
+    await tester.pump();
+    controller.dispose();
+    client.dispose();
+  });
 
   test('同名作品不盲选；手动选择按 ID 加载且覆盖错误年份类型提示', () async {
     final settings = configured();

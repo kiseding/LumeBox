@@ -168,16 +168,18 @@ class _BangumiSettingsPageState extends State<BangumiSettingsPage> {
           ),
         ],
         const SizedBox(height: 8),
-        NativeSwitchListTile.adaptive(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('播放时自动同步进度'),
-          subtitle: const Text('按集数写入 Bangumi；失败不会影响播放'),
-          value: settings.autoSync,
-          onChanged: (value) {
-            settings.autoSync = value;
-            unawaited(settings.save());
-            setState(() {});
-          },
+        GlassCard(
+          padding: EdgeInsets.zero,
+          child: NativeSwitchListTile.adaptive(
+            title: const Text('播放时自动同步进度'),
+            subtitle: const Text('按集数写入 Bangumi；失败不会影响播放'),
+            value: settings.autoSync,
+            onChanged: (value) {
+              settings.autoSync = value;
+              unawaited(settings.save());
+              setState(() {});
+            },
+          ),
         ),
         const SettingsFooterNote(
           '令牌只用于 api.bgm.tv 的认证：iOS 保存在系统钥匙串，'

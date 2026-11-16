@@ -35,6 +35,7 @@ enum PipEventKind {
   play('play'),
   pause('pause'),
   skip('skip'),
+
   /// 已进入画中画。
   entered('entered'),
 
@@ -265,9 +266,9 @@ class PipSession {
       _fail('退出画中画失败');
       return const PipOutcome.rejected('退出画中画失败');
     }
-    // stop 完成即视为已退出：部分平台不补发 exited 事件，这里主动收敛。
+    // A stop request returns before AVKit releases its content source.
     if (state == PipState.exiting) {
-      _emit(const PipSnapshot(state: PipState.idle));
+      _armWatch(exitTimeout, () => _fail('退出画中画超时（原生未回调）'));
     }
     return const PipOutcome.accepted();
   }
@@ -278,8 +279,7 @@ class PipSession {
   /// 播放器 dispose 之前清掉。
   Future<void> dispose() async {
     if (_destroyed) return;
-    final wasOpen =
-        state == PipState.active || state == PipState.entering;
+    final wasOpen = state == PipState.active || state == PipState.entering;
     if (wasOpen) {
       try {
         await backend.stop().timeout(exitTimeout);
@@ -327,7 +327,9 @@ class PipSession {
         _emit(const PipSnapshot(state: PipState.idle));
         _notify(event);
       case PipEventKind.restored:
-        _emit(const PipSnapshot(state: PipState.idle));
+        _cancelWatch();
+        _emit(const PipSnapshot(state: PipState.exiting));
+        _armWatch(exitTimeout, () => _fail('返回播放器超时（原生未回调）'));
         _notify(event);
       case PipEventKind.failed:
         _fail(event.message ?? '画中画失败', cause: event);

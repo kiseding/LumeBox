@@ -180,79 +180,93 @@ class _IconLibraryPageState extends State<IconLibraryPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SettingsGroupTitle('App 内图标'),
-                  const Text(
-                    '选择下方项目更换图标，也可以开启长按编辑，在对应页面直接更换。',
-                  ),
-                  SwitchListTile(
-                    key: const Key('icons.edit-mode'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('开启长按图标更换'),
-                    subtitle: const Text('关闭后恢复原有长按操作；重开 App 自动关闭编辑模式'),
-                    value: store.editMode,
-                    onChanged: store.setEditMode,
-                  ),
-                  TextField(
-                    key: const Key('icons.search'),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: '搜索：导航、播放、书签、设置…',
-                    ),
-                    onChanged: (v) => setState(() => query = v),
-                  ),
-                  const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
+                  GlassCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        for (final name in groups)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: ChoiceChip(
-                              label: Text(name),
-                              selected: group == name,
-                              onSelected: (_) => setState(() => group = name),
-                            ),
+                        const Text('选择下方项目更换图标，也可以开启长按编辑，在对应页面直接更换。'),
+                        SwitchListTile(
+                          key: const Key('icons.edit-mode'),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('开启长按图标更换'),
+                          subtitle: const Text('关闭后恢复原有长按操作；重开 App 自动关闭编辑模式'),
+                          value: store.editMode,
+                          onChanged: store.setEditMode,
+                        ),
+                        TextField(
+                          key: const Key('icons.search'),
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.search),
+                            hintText: '搜索：导航、播放、书签、设置…',
+                          ),
+                          onChanged: (v) => setState(() => query = v),
+                        ),
+                        const SizedBox(height: 12),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final name in groups)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: ChoiceChip(
+                                    label: Text(name),
+                                    selected: group == name,
+                                    onSelected: (_) =>
+                                        setState(() => group = name),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('只看已更换的图标'),
+                          value: changedOnly,
+                          onChanged: (v) =>
+                              setState(() => changedOnly = v ?? false),
+                        ),
+                        Text(
+                          '内置 ${builtInIcons.length} 款图标 · 已更换 ${store.overrides.length} 项 · 自己的图片 ${store.images.length} 张',
+                        ),
+                        if (busy) const LinearProgressIndicator(),
+                        if (slots.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text('没有找到对应项目，试试开启长按编辑，到目标图标直接更换。'),
                           ),
                       ],
                     ),
                   ),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('只看已更换的图标'),
-                    value: changedOnly,
-                    onChanged: (v) => setState(() => changedOnly = v ?? false),
-                  ),
-                  Text(
-                    '内置 ${builtInIcons.length} 款图标 · 已更换 ${store.overrides.length} 项 · 自己的图片 ${store.images.length} 张',
-                  ),
-                  if (busy) const LinearProgressIndicator(),
-                  if (slots.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text('没有找到对应项目，试试开启长按编辑，到目标图标直接更换。'),
-                    ),
+                  const SizedBox(height: 12),
                 ],
               );
             }
             final slot = slots[index - 2];
-            return ListTile(
-              key: ValueKey('icon-slot:${slot.id}'),
-              leading: _ChoicePreview(
-                choice: store.choice(slot.id, slot.fallback),
-                original: slot.fallback,
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: GlassCard(
+                padding: EdgeInsets.zero,
+                child: ListTile(
+                  key: ValueKey('icon-slot:${slot.id}'),
+                  leading: _ChoicePreview(
+                    choice: store.choice(slot.id, slot.fallback),
+                    original: slot.fallback,
+                  ),
+                  title: Text(
+                    slot.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    slot.group + (slot.dynamic ? ' · 可在对应页面长按精确更换' : ''),
+                  ),
+                  trailing: store.choice(slot.id, slot.fallback) == null
+                      ? const Icon(Icons.chevron_right)
+                      : const Icon(Icons.check_circle),
+                  onTap: () => editAppIcon(context, slot.id, slot.fallback),
+                ),
               ),
-              title: Text(
-                slot.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text(
-                slot.group + (slot.dynamic ? ' · 可在对应页面长按精确更换' : ''),
-              ),
-              trailing: store.choice(slot.id, slot.fallback) == null
-                  ? const Icon(Icons.chevron_right)
-                  : const Icon(Icons.check_circle),
-              onTap: () => editAppIcon(context, slot.id, slot.fallback),
             );
           },
         ),
@@ -377,78 +391,89 @@ class _IconPickerPageState extends State<IconPickerPage> {
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
               SliverToBoxAdapter(
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          _ChoicePreview(
-                            choice: selected,
-                            original: widget.original,
-                            size: 40,
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Text(
-                              name,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          TextButton(
-                            key: const Key('icons.restore'),
-                            onPressed: busy
-                                ? null
-                                : () {
-                                    store.set(widget.slot, null);
-                                    Navigator.pop(context);
-                                  },
-                            child: const Text('恢复默认'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: TextField(
-                        key: const Key('icons.picker-search'),
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          hintText: '搜索图标名称或英文关键词',
-                        ),
-                        onChanged: (v) => setState(() => query = v),
-                      ),
-                    ),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final name in ['全部', 'Material', 'iOS', '我的图片'])
-                            Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: ChoiceChip(
-                                label: Text(name),
-                                selected: family == name,
-                                onSelected: (_) =>
-                                    setState(() => family = name),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: GlassCard(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              _ChoicePreview(
+                                choice: selected,
+                                original: widget.original,
+                                size: 40,
                               ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              TextButton(
+                                key: const Key('icons.restore'),
+                                onPressed: busy
+                                    ? null
+                                    : () {
+                                        store.set(widget.slot, null);
+                                        Navigator.pop(context);
+                                      },
+                                child: const Text('恢复默认'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: TextField(
+                            key: const Key('icons.picker-search'),
+                            decoration: const InputDecoration(
+                              prefixIcon: Icon(Icons.search),
+                              hintText: '搜索图标名称或英文关键词',
                             ),
-                        ],
-                      ),
+                            onChanged: (v) => setState(() => query = v),
+                          ),
+                        ),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final name in [
+                                '全部',
+                                'Material',
+                                'iOS',
+                                '我的图片',
+                              ])
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: ChoiceChip(
+                                    label: Text(name),
+                                    selected: family == name,
+                                    onSelected: (_) =>
+                                        setState(() => family = name),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (selected?.id.startsWith('image:') ?? false)
+                          SwitchListTile(
+                            title: const Text('图片跟随按钮颜色'),
+                            subtitle: const Text('关闭则保留图片原本的颜色'),
+                            value: tint,
+                            onChanged: (v) => setState(() {
+                              tint = v;
+                              selected = IconChoice(selected!.id, tint: v);
+                            }),
+                          ),
+                        if (busy) const LinearProgressIndicator(),
+                      ],
                     ),
-                    if (selected?.id.startsWith('image:') ?? false)
-                      SwitchListTile(
-                        title: const Text('图片跟随按钮颜色'),
-                        subtitle: const Text('关闭则保留图片原本的颜色'),
-                        value: tint,
-                        onChanged: (v) => setState(() {
-                          tint = v;
-                          selected = IconChoice(selected!.id, tint: v);
-                        }),
-                      ),
-                    if (busy) const LinearProgressIndicator(),
-                  ],
+                  ),
                 ),
               ),
               SliverPadding(

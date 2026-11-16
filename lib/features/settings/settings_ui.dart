@@ -32,15 +32,21 @@ class SettingsGroupCard extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => GlassCard(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Column(
-      children: [
-        for (var i = 0; i < children.length; i++) ...[
-          if (i > 0) const SettingsDivider(),
-          children[i],
+  Widget build(BuildContext context) => SettingsIconScope(
+    color: SettingsIconScope.of(context)?.color,
+    // Only rows inside this surface may omit their own card. Composite widgets
+    // elsewhere in a category still need an independent surface.
+    grouped: true,
+    child: GlassCard(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const SettingsDivider(),
+            children[i],
+          ],
         ],
-      ],
+      ),
     ),
   );
 }
@@ -470,7 +476,6 @@ class SettingsCategoryPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SettingsIconScope(
     color: settingsCategoryColor(category.title),
-    grouped: true,
     child: GlassScaffold(
       title: category.title,
       effectModule: GlassModule.settings,

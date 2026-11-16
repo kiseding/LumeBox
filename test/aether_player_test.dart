@@ -13,6 +13,7 @@ void main() {
   final calls = <MethodCall>[];
   Completer<void>? loading;
   Completer<int>? creating;
+  var nativeGeneration = 0;
   setUp(() {
     calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -22,6 +23,7 @@ void main() {
         );
     loading = null;
     creating = null;
+    nativeGeneration = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(AetherPlayer.channel, (call) async {
           calls.add(call);
@@ -29,10 +31,12 @@ void main() {
             case 'create':
               return creating == null ? 42 : await creating!.future;
             case 'load':
+              nativeGeneration = (call.arguments as Map)['generation'] as int;
               await loading?.future;
               return null;
             case 'snapshot':
               return <String, Object?>{
+                'generation': nativeGeneration,
                 'position': 12.5,
                 'duration': 100.0,
                 'playing': true,
@@ -174,6 +178,74 @@ void main() {
             as Map)['forwardBufferSeconds'],
         60,
       );
+    },
+  );
+
+  test('native load timeout releases the command queue and rejects late load events', () async {
+    loading = Completer<void>();
+    final blocked = loading!;
+    final player = AetherPlayer(
+      mediaLoadTimeout: const Duration(milliseconds: 50),
+    );
+    addTearDown(player.dispose);
+    await expectLater(
+      player.load(PlayerMedia(uri: Uri.file('/stuck.mkv'))),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(player.snapshot.value.buffering, isFalse);
+    expect(player.snapshot.value.error, contains('TimeoutException'));
+    await Future<void>.delayed(Duration.zero);
+    expect(calls.any((c) => c.method == 'stop'), isTrue);
+    // Older/native event-less sessions still poll after a cancelled load.
+    // Their old ready snapshot must not erase the timeout error.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    expect(calls.any((c) => c.method == 'snapshot'), isTrue);
+    expect(player.snapshot.value.error, contains('TimeoutException'));
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+          'lumebox/aether/42/events',
+          const StandardMethodCodec().encodeSuccessEnvelope({
+            'generation': 1,
+            'playing': true,
+            'position': 99.0,
+          }),
+          (_) {},
+        );
+    await Future<void>.delayed(Duration.zero);
+    expect(player.snapshot.value.error, contains('TimeoutException'));
+    loading = null;
+    await player
+        .load(PlayerMedia(uri: Uri.file('/good.mkv')))
+        .timeout(const Duration(seconds: 1));
+    expect(player.snapshot.value.error, isNull);
+    blocked.complete();
+  });
+
+  test(
+    'stop cancels a blocked load immediately and permits reloading',
+    () async {
+      loading = Completer<void>();
+      final blocked = loading!;
+      final player = AetherPlayer();
+      addTearDown(player.dispose);
+      final pending = player.load(PlayerMedia(uri: Uri.file('/blocked.mkv')));
+      while (!calls.any((c) => c.method == 'load')) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      await player.stop().timeout(const Duration(seconds: 1));
+      await pending.timeout(const Duration(seconds: 1));
+      expect(player.mediaInitialized, isFalse);
+      expect(player.snapshot.value.buffering, isFalse);
+      loading = null;
+      await player.load(PlayerMedia(uri: Uri.file('/new.mkv')));
+      expect(player.mediaInitialized, isTrue);
+      blocked.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        player.snapshot.value.position,
+        const Duration(milliseconds: 12500),
+      );
+      expect(player.snapshot.value.error, isNull);
     },
   );
 

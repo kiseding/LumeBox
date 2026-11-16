@@ -133,7 +133,7 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
           !entries.isEmpty, entries.count <= 5 else { return false }
     var next: [LumeSystemTabSpec] = []
     for entry in entries {
-      guard let id = entry["id"] as? String, ["comic", "video", "settings", "search"].contains(id),
+      guard let id = entry["id"] as? String, ["comic", "video", "music", "settings", "search"].contains(id),
             let label = entry["label"] as? String, !label.isEmpty,
             !next.contains(where: { $0.id == id }) else { return false }
       next.append(LumeSystemTabSpec(id: id, label: label,
@@ -157,10 +157,11 @@ private final class LumeSystemTabBarView: NSObject, FlutterPlatformView, UITabBa
         switch spec.id {
         case "comic": symbol = "book"
         case "video": symbol = "play.circle"
+        case "music": symbol = "music.note"
         case "search": symbol = "magnifyingglass"
         default: symbol = "gearshape"
         }
-        let filled = spec.id == "search" ? symbol : symbol + ".fill"
+        let filled = (spec.id == "search" || spec.id == "music") ? symbol : symbol + ".fill"
         let item = UITabBarItem(
           title: labels ? spec.label : nil,
           image: UIImage(systemName: solid ? filled : symbol, withConfiguration: configuration),

@@ -626,6 +626,33 @@ class TmdbClient {
   }
 
   String? lastError;
+  Future<List<Map>> _targetedCandidates(
+    String query,
+    int revision,
+    Uri? base, {
+    String? mediaType,
+  }) async {
+    final types = [
+      'movie',
+      'tv',
+    ].where((type) => mediaType == null || type == mediaType);
+    final batches = await Future.wait(
+      types.map((type) async {
+        final data = await _json(
+          'search/$type',
+          revision,
+          base,
+          query: {'query': query, 'language': 'zh-CN'},
+        );
+        return (data['results'] as List? ?? [])
+            .whereType<Map>()
+            .map((row) => {...row, 'media_type': type})
+            .toList();
+      }),
+    );
+    return batches.expand((rows) => rows).toList();
+  }
+
   Future<List<TmdbMatchCandidate>> searchMatches(String title) async {
     lastError = null;
     if (!settings.configured || title.trim().isEmpty) return [];
@@ -638,10 +665,16 @@ class TmdbClient {
         base,
         query: {'query': cleanTitle(title), 'language': 'zh-CN'},
       );
+      var rows = (data['results'] as List? ?? []).whereType<Map>().toList();
+      if (!rows.any(
+        (row) =>
+            ['movie', 'tv'].contains(row['media_type']) && row['id'] is int,
+      )) {
+        rows = await _targetedCandidates(cleanTitle(title), revision, base);
+      }
       if (!settings.configured || settings.revision != revision) return [];
       final seen = <String>{};
-      return (data['results'] as List? ?? [])
-          .whereType<Map>()
+      return rows
           .where(
             (row) =>
                 ['movie', 'tv'].contains(row['media_type']) &&
@@ -681,11 +714,12 @@ class TmdbClient {
 
   static String cleanTitle(String value) {
     var title = SearchSettings.toSimplified(value).trim();
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 8; i++) {
+      final previous = title;
       title = title
           .replaceAll(
             RegExp(
-              r'[\s._-]*[（(\[]?(?:国语|粤语|普通话|中字|字幕|高清|超清|蓝光|完整版|更新至\d+集?|全\d+集|第\d+集|2160[pP]|1080[pP]|720[pP]|4[kK])[）)\]]?\s*$',
+              r'[\s._-]*[（(【\[]?(?:国语|粤语|普通话|国粤双语|中英双字|中字|字幕|高清|超清|蓝光|完整版|已完结|完结|更新至\s*\d+集?|全\s*\d+集|第[一二三四五六七八九十百\d]+集|2160[pP]|1080[pP]|720[pP]|4[kK])[）)】\]]?\s*$',
             ),
             '',
           )
@@ -694,6 +728,8 @@ class TmdbClient {
           .replaceAll(RegExp(r'[（(\[](?:19|20)\d{2}[）)\]]'), '')
           .replaceAll(RegExp(r'\s+(?:19|20)\d{2}$'), '')
           .trim();
+      if (title.isEmpty) return previous;
+      if (title == previous) break;
     }
     return title;
   }
@@ -757,17 +793,35 @@ class TmdbClient {
       Map<String, dynamic>? matchedDetails;
       final cleaned = cleanTitle(title);
       final year = yearHint ?? titleYear(title);
-      for (final query
-          in selected == null ? <String>{cleaned, title.trim()} : <String>{}) {
+      final searches = selected == null
+          ? [
+              for (final query in <String>{cleaned, title.trim()})
+                (query: query, targeted: false),
+              (query: cleaned, targeted: true),
+            ]
+          : <({String query, bool targeted})>[];
+      for (final search in searches) {
+        final query = search.query;
         if (query.isEmpty) continue;
-        final data = await _json(
-          'search/multi',
-          revision,
-          base,
-          query: {'query': query, 'language': 'zh-CN'},
-        );
-        final candidates = (data['results'] as List? ?? [])
-            .whereType<Map>()
+        final rows = search.targeted
+            ? await _targetedCandidates(
+                query,
+                revision,
+                base,
+                mediaType: mediaType,
+              )
+            : ((await _json(
+                            'search/multi',
+                            revision,
+                            base,
+                            query: {'query': query, 'language': 'zh-CN'},
+                          ))['results']
+                          as List? ??
+                      [])
+                  .whereType<Map>()
+                  .toList();
+        if (!settings.configured || settings.revision != revision) return null;
+        final candidates = rows
             .where(
               (row) =>
                   ['movie', 'tv'].contains(row['media_type']) &&

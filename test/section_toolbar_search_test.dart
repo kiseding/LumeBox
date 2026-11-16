@@ -44,6 +44,7 @@ void main() {
         );
     for (final section in Section.values) {
       await SectionScope.open(section);
+      await ReadingLibrary.open(section);
     }
   });
 
@@ -821,7 +822,9 @@ void main() {
       expect(comic.setting('search.results.siteLayout'), isNull);
       await tester.pumpWidget(const SizedBox());
       ReadingLibrary.close(Section.video);
-      final reopened = await ReadingLibrary.open(Section.video);
+      final reopened = (await tester.runAsync(
+        () => ReadingLibrary.open(Section.video),
+      ))!;
       expect(reopened.setting('search.results.siteLayout'), 'top');
       await tester.pumpWidget(page());
       await tester.pumpAndSettle();
@@ -844,6 +847,76 @@ void main() {
   });
 
   group('聚合搜索站点选择', () {
+    testWidgets('站点名称和ID快速查找，批量操作只影响匹配站点且保留其他选择', (tester) async {
+      SearchScopeSelection? selection;
+      await tester.binding.setSurfaceSize(const Size(440, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  selection = await showSearchModeMenu(
+                    context,
+                    current: SearchMode.aggregate,
+                    sources: [
+                      SourceDescriptor(
+                        id: 'alpha',
+                        name: '甲站',
+                        version: '1',
+                        enabled: true,
+                      ),
+                      SourceDescriptor(
+                        id: 'beta',
+                        name: '乙站',
+                        version: '1',
+                        enabled: true,
+                      ),
+                    ],
+                  );
+                },
+                child: const Text('打开范围'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开范围'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('search-site-query')),
+        'ALPHA',
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('search-site-alpha')), findsOneWidget);
+      expect(find.byKey(const ValueKey('search-site-beta')), findsNothing);
+      await tester.tap(find.text('清空'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('search-site-query')), '乙站');
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const ValueKey('search-site-beta')),
+            )
+            .value,
+        isTrue,
+      );
+      await tester.tap(find.byTooltip('清除站点查找'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const ValueKey('search-site-alpha')),
+            )
+            .value,
+        isFalse,
+      );
+      await tester.tap(find.text('应用'));
+      await tester.pumpAndSettle();
+      expect(selection!.sourceIds, {'beta'});
+    });
     for (final section in [Section.cat, Section.comic, Section.video]) {
       testWidgets('${section.label}：只请求勾选站点，结果页可修改并记住选择', (tester) async {
         final first = _SearchSource(
@@ -909,6 +982,16 @@ void main() {
         await tester.tap(find.widgetWithText(ListTile, '聚合搜索'));
         await tester.pumpAndSettle();
         expect(find.widgetWithText(CheckboxListTile, '停用站点'), findsNothing);
+        await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('search-site-source-b')),
+          150,
+          scrollable: find
+              .descendant(
+                of: find.byType(BottomSheet),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
         await tester.tap(find.byKey(const ValueKey('search-site-source-b')));
         await tester.pumpAndSettle();
         expect(find.text('已选 1/2 个站点'), findsOneWidget);
@@ -924,7 +1007,7 @@ void main() {
         expect(find.text('甲作品结果'), findsOneWidget);
         expect(find.text('乙作品结果'), findsNothing);
 
-        await tester.tap(find.widgetWithIcon(TextButton, Icons.checklist));
+        await tester.tap(find.widgetWithText(TextButton, '站点 1'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('清空'));
         await tester.pumpAndSettle();
@@ -946,7 +1029,7 @@ void main() {
         expect(store.load(), {'source-b'});
 
         // Dismissing without applying must not search or persist the draft.
-        await tester.tap(find.widgetWithIcon(TextButton, Icons.checklist));
+        await tester.tap(find.widgetWithText(TextButton, '站点 1'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('全选'));
         await tester.pumpAndSettle();

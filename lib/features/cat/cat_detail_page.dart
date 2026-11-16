@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import '../../shared/widgets/network_owned_state.dart';
 import '../../core/net/network_cancellation.dart';
 
@@ -171,10 +173,10 @@ class _CatDetailPageState extends State<CatDetailPage>
   Future<void> play(int index) async {
     if (playing) return;
     setState(() => playing = true);
+    final route = ModalRoute.of(context);
     PlayerPrelaunch? prelaunch;
-    var openedPlayer = false;
     try {
-      if (PlayerFactory.isSupported) {
+      if (!Platform.isIOS && PlayerFactory.isSupported) {
         final preferred = VideoPlayerSettingsStore(widget.library)
             .load()
             .kernel;
@@ -196,20 +198,20 @@ class _CatDetailPageState extends State<CatDetailPage>
           chapterId: chapter.id,
         );
       } on CatWebParseRequired catch (request) {
-        if (!mounted) return;
+        if (!mounted || route?.isCurrent == false) return;
         if (request.webPlayer) {
           await showSourceWebPlayer(context, request);
           return;
         }
         final resolved = await showCatWebParsePage(context, request);
-        if (resolved == null || !mounted) return;
+        if (resolved == null || !mounted || route?.isCurrent == false) return;
         content = VideoContent(
           url: resolved,
           headers: {...request.headers, 'Referer': request.page.toString()},
         );
       }
       if (content is! VideoContent) throw StateError('站点未返回视频地址');
-      if (!mounted) return;
+      if (!mounted || route?.isCurrent == false) return;
       widget.source.service.playInfo = {
         'name': widget.item.title,
         'title': widget.item.title,
@@ -226,21 +228,20 @@ class _CatDetailPageState extends State<CatDetailPage>
       final media = PlayerMedia(
         previews: content.previews,
         uri: quality?.url ?? SourcePlayback.contentAddress(content)!,
-        headers: quality != null && quality.headers.isNotEmpty
-            ? quality.headers
-            : SourcePlayback.contentHeaders(content, source: widget.source),
+        headers: quality?.headers ??
+            SourcePlayback.contentHeaders(content, source: widget.source),
         title: '${widget.item.title} · ${chapter.title}',
       );
       if (prelaunch != null &&
           PlaybackOrientationController.instance.orientation ==
               PlaybackOrientation.auto) {
         await preparePlaybackEntry(prelaunch, media, settings);
-        if (!mounted) return;
+        if (!mounted || route?.isCurrent == false) return;
       }
       await applyPlaybackEntryOrientation(prelaunch);
-      if (!mounted) return;
+      if (!mounted || route?.isCurrent == false) return;
       final transferred = prelaunch;
-      openedPlayer = true;
+      final before = widget.library.videoProgress(widget.item.id, sourceId: widget.source.id);
       final opening = Navigator.push(
         context,
         MaterialPageRoute<void>(
@@ -251,7 +252,6 @@ class _CatDetailPageState extends State<CatDetailPage>
             sourceManager: CatSourceManager(
               widget.source.service,
               widget.source.site,
-              chapterFlag: playbackLine,
             ),
             sourceId: widget.source.id,
             qualities: qualities,
@@ -271,8 +271,21 @@ class _CatDetailPageState extends State<CatDetailPage>
       );
       prelaunch = null;
       await opening;
+      if (!mounted) return;
+      final after = widget.library.videoProgress(widget.item.id, sourceId: widget.source.id);
+      if (after != null &&
+          (after.chapterId != before?.chapterId ||
+           after.position != before?.position ||
+           after.updatedAt != before?.updatedAt)) {
+        lastChapterId = after.chapterId;
+        final watched = chapters.where((chapter) => chapter.id == after.chapterId).firstOrNull;
+        if (watched != null) {
+          selectedChapterId = watched.id;
+          line = CatDataSource.flagOf(watched);
+        }
+      }
     } catch (failure) {
-      if (mounted) {
+      if (mounted && route?.isCurrent != false) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('$failure')));
       }
@@ -281,17 +294,7 @@ class _CatDetailPageState extends State<CatDetailPage>
       if (mounted) {
         // 播放器返回：进度已落库，主动通知历史抽屉重新取数。
         widget.library.refresh();
-        setState(() {
-          playing = false;
-          lastChapterId =
-              widget.library
-                  .videoProgress(widget.item.id, sourceId: widget.source.id)
-                  ?.chapterId ??
-              lastChapterId;
-          if (openedPlayer && lastChapterId != null) {
-            selectedChapterId = lastChapterId;
-          }
-        });
+        setState(() => playing = false);
       }
     }
   }

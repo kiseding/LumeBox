@@ -9,6 +9,13 @@ import '../../core/theme/lume_theme.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/video_glass_surface.dart';
 
+String playerKernelShortLabel(PlayerKernel kernel) => switch (kernel) {
+  PlayerKernel.avplayer => 'AVP',
+  PlayerKernel.mpv => 'MPV',
+  PlayerKernel.aether => 'AET',
+  PlayerKernel.mdk => kernel.label,
+};
+
 /// 与倍速入口相同的锚点小菜单，点击选项后立即收起。
 class PlayerKernelButton extends StatefulWidget {
   const PlayerKernelButton({
@@ -42,13 +49,15 @@ class _PlayerKernelButtonState extends State<PlayerKernelButton> {
       PlayerVerticalMenu.body(
         context: context,
         key: const Key('player-kernel-menu'),
+        menuWidth: 88,
         children: [
-          for (final kernel in PlayerKernel.values)
+          for (final kernel in PlayerKernel.selectable)
             Tooltip(
               message: widget.catalog.unavailableReason(kernel) ?? kernel.label,
               child: PlayerVerticalMenu.option(
                 context: context,
-                label: kernel.label,
+                label: playerKernelShortLabel(kernel),
+                highlightSelection: true,
                 selected: widget.selected == kernel,
                 onSelected: widget.catalog.isAvailable(kernel)
                     ? (_) {
@@ -108,7 +117,7 @@ class PlayerKernelPicker extends StatelessWidget {
     final options = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (final kernel in PlayerKernel.values)
+        for (final kernel in PlayerKernel.selectable)
           _KernelTile(
             kernel: kernel,
             available: catalog.isAvailable(kernel),

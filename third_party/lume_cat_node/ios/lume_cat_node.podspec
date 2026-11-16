@@ -34,5 +34,10 @@ Pod::Spec.new do |s|
   s.platform = :ios, '18.0'
   s.frameworks = 'Security'
   s.static_framework = true
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
+  # The pinned SDK has an arm64 simulator slice, not a universal simulator
+  # slice. CocoaPods otherwise asks for arm64+x86_64 and copies no SDK at all.
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'ARCHS[sdk=iphonesimulator*]' => 'arm64',
+  }
 end

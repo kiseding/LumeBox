@@ -6,6 +6,35 @@ import 'package:lume_box/features/video/player_gestures.dart';
 ///
 /// 这些规则混在 widget 里就只能靠模拟手势去测（慢且脆），因此抽成纯函数单独验证。
 void main() {
+  test(
+    'episode swipes use a wider center, vertical intent and release velocity',
+    () {
+      expect(EpisodeSwipePolicy.claims(4, -40, .25), isTrue);
+      expect(EpisodeSwipePolicy.claims(40, -20, .5), isFalse);
+      expect(EpisodeSwipePolicy.claims(0, -50, .1), isFalse);
+      expect(
+        EpisodeSwipePolicy.direction(dy: -100, velocity: 0, height: 800),
+        1,
+      );
+      expect(
+        EpisodeSwipePolicy.direction(dy: 100, velocity: 0, height: 800),
+        -1,
+      );
+      expect(
+        EpisodeSwipePolicy.direction(dy: -30, velocity: -900, height: 800),
+        1,
+      );
+      expect(
+        EpisodeSwipePolicy.direction(dy: -30, velocity: 0, height: 800),
+        0,
+      );
+      expect(
+        EpisodeSwipePolicy.direction(dy: -100, velocity: 900, height: 800),
+        0,
+      );
+    },
+  );
+
   group('意图判定', () {
     test('左侧上下滑 = 亮度，右侧 = 音量', () {
       expect(
@@ -216,7 +245,11 @@ void main() {
     test('在用户倍速基础上翻倍，上限 3x', () {
       expect(PlayerGesturePolicy.boostSpeed(1.0), 2.0);
       expect(PlayerGesturePolicy.boostSpeed(1.5), 3.0);
-      expect(PlayerGesturePolicy.boostSpeed(2.0), 3.0, reason: '2x 翻倍会到 4x，钳到 3x');
+      expect(
+        PlayerGesturePolicy.boostSpeed(2.0),
+        3.0,
+        reason: '2x 翻倍会到 4x，钳到 3x',
+      );
     });
 
     test('已经很快时不再叠加（3x 上再叠会失真到没法听）', () {
@@ -273,7 +306,11 @@ void main() {
     });
 
     test('copyWith 保留未指定的字段', () {
-      const state = PlayerGestureState(volume: 0.6, brightness: 0.3, active: true);
+      const state = PlayerGestureState(
+        volume: 0.6,
+        brightness: 0.3,
+        active: true,
+      );
       final next = state.copyWith(intent: PlayerGestureIntent.volume);
       expect(next.volume, 0.6);
       expect(next.brightness, 0.3);
@@ -283,12 +320,12 @@ void main() {
 
     test('clearSeekTarget 能清掉目标（结束手势时用）', () {
       const state = PlayerGestureState(seekTarget: Duration(seconds: 30));
-      expect(
-        state.copyWith(clearSeekTarget: true).seekTarget,
-        isNull,
-      );
+      expect(state.copyWith(clearSeekTarget: true).seekTarget, isNull);
       // 不传 clear 时保留。
-      expect(state.copyWith(intent: PlayerGestureIntent.seek).seekTarget, isNotNull);
+      expect(
+        state.copyWith(intent: PlayerGestureIntent.seek).seekTarget,
+        isNotNull,
+      );
     });
   });
 

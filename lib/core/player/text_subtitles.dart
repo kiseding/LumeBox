@@ -38,56 +38,66 @@ class TextSubtitles {
       if (await file.length() > maxBytes) return null;
       bytes = await file.readAsBytes();
     }
-    var content = '';
+    final result = parse(decode(bytes));
+    return result.cues.isEmpty ? null : result;
+  }
+
+  static String decode(List<int> bytes) {
     if (bytes.length >= 2 &&
         ((bytes[0] == 255 && bytes[1] == 254) ||
             (bytes[0] == 254 && bytes[1] == 255))) {
       final little = bytes[0] == 255;
-      content = String.fromCharCodes([
+      return String.fromCharCodes([
         for (var i = 2; i + 1 < bytes.length; i += 2)
           little ? bytes[i] | bytes[i + 1] << 8 : bytes[i] << 8 | bytes[i + 1],
       ]);
-    } else {
-      content = utf8.decode(bytes);
     }
-    final result = parse(content);
-    return result.cues.isEmpty ? null : result;
+    return utf8.decode(bytes);
   }
 
   static TextSubtitles parse(String text) {
-    final lines = text
-        .replaceAll('\r', '')
-        .replaceAll('\uFEFF', '')
-        .split('\n');
+    final lines = const LineSplitter().convert(text.startsWith('\ufeff') ? text.substring(1) : text);
     final cues = <SubtitleCue>[];
     final timing = RegExp(
-      r'((?:\d+:)?\d{2}:\d{2}[,.]\d{3})\s*-->\s*((?:\d+:)?\d{2}:\d{2}[,.]\d{3})',
+      r'^\s*((?:\d+:)?\d{2}:\d{2}[,.]\d{3})\s*-->\s*((?:\d+:)?\d{2}:\d{2}[,.]\d{3})(?:[ \t]+.*)?$',
     );
-    Duration timestamp(String value) {
-      final parts = value.replaceAll(',', '.').split(':');
-      var seconds = 0.0;
-      for (final p in parts) {
-        seconds = seconds * 60 + double.parse(p);
-      }
-      return Duration(milliseconds: (seconds * 1000).round());
+    Duration? timestamp(String value) {
+      final parts = value.split(RegExp(r'[:,.]'));
+      final hours = parts.length == 4 ? int.tryParse(parts.removeAt(0)) : 0;
+      // Duration stores signed 64-bit microseconds on native platforms.
+      const maxMilliseconds = 0x7fffffffffffffff ~/ 1000;
+      if (hours == null || hours > maxMilliseconds ~/ 3600000) return null;
+      final minutes = int.parse(parts[0]), seconds = int.parse(parts[1]);
+      if (minutes > 59 || seconds > 59) return null;
+      final milliseconds = ((hours * 60 + minutes) * 60 + seconds) * 1000 + int.parse(parts[2]);
+      return milliseconds > maxMilliseconds ? null : Duration(milliseconds: milliseconds);
     }
 
     for (var i = 0; i < lines.length; i++) {
-      final match = timing.firstMatch(lines[i]);
-      if (match == null) continue;
-      final start = timestamp(match[1]!), end = timestamp(match[2]!);
-      final body = <String>[];
-      while (++i < lines.length && lines[i].trim().isNotEmpty) {
-        body.add(lines[i]);
+      if (lines[i].trim().isEmpty) continue;
+      final block = <String>[];
+      while (i < lines.length && lines[i].trim().isNotEmpty) {
+        block.add(lines[i++]);
       }
-      final value = body
+      final first = block.first.trim();
+      if (first == 'NOTE' || first.startsWith('NOTE ') || first.startsWith('NOTE\t') ||
+          first == 'STYLE' || first == 'REGION') {
+        continue;
+      }
+      // A cue may have one identifier line before its timing line.
+      final index = block.take(2).toList().indexWhere((line) => timing.hasMatch(line));
+      if (index < 0) continue;
+      final match = timing.firstMatch(block[index])!;
+      final start = timestamp(match[1]!), end = timestamp(match[2]!);
+      if (start == null || end == null || end <= start) continue;
+      final value = block.skip(index + 1)
           .join('\n')
           .replaceAll(RegExp(r'<[^>]*>'), '')
           .replaceAll('&lt;', '<')
           .replaceAll('&gt;', '>')
-          .replaceAll('&amp;', '&')
-          .replaceAll('&nbsp;', ' ');
-      if (end > start && value.trim().isNotEmpty) {
+          .replaceAll('&nbsp;', ' ')
+          .replaceAll('&amp;', '&');
+      if (value.trim().isNotEmpty) {
         cues.add(SubtitleCue(start, end, value));
       }
     }

@@ -25,6 +25,7 @@ import '../reading/explore_view.dart';
 import '../reading/history_sheet.dart';
 import '../reading/source_filter_page.dart';
 import 'video_play_target.dart';
+import 'video_download_center.dart';
 import 'video_player_page.dart';
 import 'video_player_settings.dart';
 
@@ -51,6 +52,7 @@ class VideoPage extends StatefulWidget {
     this.pipBackend,
     this.brightnessBackend,
     this.sourceManager,
+    this.downloadCenter,
     this.library,
     this.sourceRevision = 0,
     this.sourceSelectionRevision = 0,
@@ -76,6 +78,7 @@ class VideoPage extends StatefulWidget {
 
   /// 图源管理端口（首页的浏览面用它取本板块图源）。为空时用正式实现。
   final SourceManager? sourceManager;
+  final VideoDownloadCenter? downloadCenter;
 
   /// 本板块阅读库（播放进度）；为空时按板块打开正式实现。
   final ReadingLibrary? library;
@@ -208,18 +211,23 @@ class _VideoPageState extends State<VideoPage> {
         context,
         MaterialPageRoute<void>(
           builder: (_) => VideoDetailPage(
+            downloadCenter: widget.downloadCenter,
             sourceId: selection.sourceId,
             manager: manager,
             loadSource: () => manager.open(selection.sourceId),
             item: selection.item,
             library: library,
             prelaunch: _startPrelaunch,
-            onPlay: (media, target, qualities, prelaunch) => _openPlayer(
-              media,
-              target: target,
-              qualities: qualities,
-              prelaunch: prelaunch,
-            ),
+            onPlay: (origin, media, target, qualities, prelaunch) {
+              return _openPlayer(
+                media,
+                target: target,
+                qualities: qualities,
+                prelaunch: prelaunch,
+                source: origin.source,
+                originRoute: ModalRoute.of(origin.context),
+              );
+            },
           ),
         ),
       );
@@ -241,21 +249,32 @@ class _VideoPageState extends State<VideoPage> {
     VideoPlayTarget? target,
     List<VideoQuality> qualities = const <VideoQuality>[],
     PlayerPrelaunch? prelaunch,
+    DataSource? source,
+    ModalRoute<dynamic>? originRoute,
   }) async {
-    if (!mounted) {
+    if (!mounted || originRoute?.isCurrent == false) {
       _discardPrelaunch(prelaunch);
       return;
     }
-    await PlaybackFocus.acquire('video');
+    if (widget.playerFactory == null) {
+      await PlaybackFocus.acquire(
+        'video',
+        stillWanted: () => mounted && originRoute?.isCurrent != false,
+      );
+    }
+    if (!mounted || originRoute?.isCurrent == false) {
+      _discardPrelaunch(prelaunch);
+      return;
+    }
     final entering =
         prelaunch ??
         await preparePlaybackRoute(
           media,
           library: _library,
           target: target,
-          stillActive: () => mounted,
+          stillActive: () => mounted && originRoute?.isCurrent != false,
         );
-    if (!mounted) {
+    if (!mounted || originRoute?.isCurrent == false) {
       _discardPrelaunch(entering);
       return;
     }
@@ -270,6 +289,7 @@ class _VideoPageState extends State<VideoPage> {
             title: target?.title,
             target: target,
             sourceId: target?.sourceId,
+            source: source,
             playerFactory: widget.playerFactory,
             catalog: widget.catalog,
             pipBackend: widget.pipBackend,
@@ -306,18 +326,49 @@ class _VideoPageState extends State<VideoPage> {
     );
   }
 
-  Future<void> _resumeFromProgress(LibraryItem item, VideoProgress progress) =>
-      _playFromSelection(
-        ExploreSelection(
-          sourceId: item.sourceId,
-          item: SourceItem(
-            id: item.itemId,
+  Future<void> _resumeFromProgress(
+    LibraryItem item,
+    VideoProgress progress,
+  ) async {
+    final route = ModalRoute.of(context);
+    final file = await (widget.downloadCenter ?? VideoDownloadCenter.instance)
+        .playbackIfAvailable(item.sourceId, item.itemId, progress.chapterId);
+    if (!mounted || route?.isCurrent == false) {
+      await file?.close();
+      return;
+    }
+    if (file != null) {
+      try {
+        await _openPlayer(
+          file.media(item.title),
+          originRoute: route,
+          target: VideoPlayTarget(
+            sourceId: item.sourceId,
+            itemId: item.itemId,
             title: item.title,
             cover: item.cover,
-            subtitle: item.subtitle,
+            chapterIndex: progress.chapterIndex,
+            chapterId: progress.chapterId,
+            chapterTitle: progress.chapterTitle,
           ),
+        );
+      } finally {
+        await file.close();
+      }
+      return;
+    }
+    await _playFromSelection(
+      ExploreSelection(
+        sourceId: item.sourceId,
+        item: SourceItem(
+          id: item.itemId,
+          title: item.title,
+          cover: item.cover,
+          subtitle: item.subtitle,
         ),
-      );
+      ),
+    );
+  }
 
   // ------------------------------------------------------------------ 历史
 

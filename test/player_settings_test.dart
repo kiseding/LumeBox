@@ -24,6 +24,7 @@ void main() {
       expect(settings.controlStyle, PlayerControlStyle.icons);
       expect(settings.subtitlesEnabled, isTrue);
       expect(settings.subtitleSize, SubtitleSize.standard);
+      expect(settings.swipeUpNext, isTrue);
     });
 
     test('倍速归一：非档位值夹到最近档位，NaN 回默认', () {
@@ -82,6 +83,17 @@ void main() {
       if (root.existsSync()) root.deleteSync(recursive: true);
     });
 
+    test('竖屏切集缺省开启，手动关闭后重开保留选择', () async {
+      final store = await VideoPlayerSettingsStore.open();
+      expect(store.load().swipeUpNext, isTrue);
+      store.save(store.load().copyWith(swipeUpNext: false));
+      store.close();
+      final reopened = await VideoPlayerSettingsStore.open();
+      expect(reopened.load().swipeUpNext, isFalse);
+      reopened.save(reopened.load().copyWith(swipeUpNext: true));
+      expect(reopened.load().swipeUpNext, isTrue);
+    });
+
     test('保存后可读回，关库重开仍在', () async {
       final store = await VideoPlayerSettingsStore.open();
       store.save(
@@ -94,7 +106,7 @@ void main() {
 
       final reopened = await VideoPlayerSettingsStore.open();
       final loaded = reopened.load();
-      expect(loaded.kernel, PlayerKernel.mdk);
+      expect(loaded.kernel, PlayerKernel.avplayer);
       expect(loaded.speed, 1.5);
       expect(loaded.subtitlesEnabled, isFalse);
       expect(loaded.subtitleSize, SubtitleSize.large);

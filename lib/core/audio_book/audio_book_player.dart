@@ -45,7 +45,10 @@ class AudioBookSettings extends ChangeNotifier {
   Future<File> get _file async => File(
     '${(await getApplicationSupportDirectory()).path}/audio_book_settings.json',
   );
-  Future<void> load() => _loading ??= _load();
+  Future<void> load() => _loading ??= _load().onError((Object error, StackTrace stack) {
+    _loading = null;
+    Error.throwWithStackTrace(error, stack);
+  });
   Future<void> _load() async {
     final file = await _file;
     if (!await file.exists()) return;
@@ -110,13 +113,16 @@ class AudioBookSettings extends ChangeNotifier {
   }
 }
 
+typedef AudioBookPlayhead = ({int? index, Duration position, Duration? duration});
+
 /// Every future implementation must satisfy this audio-only contract.
 abstract interface class AudioBookPlayer {
+  AudioBookPlayhead get playhead;
   Stream<Duration> get position;
   Stream<Duration?> get duration;
   Stream<bool> get playing;
   Stream<int?> get index;
-  Stream<String> get errors;
+  Stream<AudioBookFailure> get errors;
   Future<void> load(
     List<AudioBookTrack> sources, {
     int index = 0,
@@ -136,7 +142,8 @@ class JustAudioBookPlayer implements AudioBookPlayer {
   JustAudioBookPlayer({
     ja.AudioPlayer? player,
     Future<void> Function()? configureSession,
-  }) : _configureSession = configureSession ?? _configureAudioSession,
+  // ignore: prefer_initializing_formals
+  }) : _configureSession = configureSession,
        _player =
            player ??
            ja.AudioPlayer(
@@ -161,16 +168,24 @@ class JustAudioBookPlayer implements AudioBookPlayer {
              ),
            );
   final ja.AudioPlayer _player;
-  final Future<void> Function() _configureSession;
-  static Future<void> _configureAudioSession() async {
+  final Future<void> Function()? _configureSession;
+  static Future<void> _configureAudioSession(bool music) async {
     final session = await AudioSession.instance;
-    await session.configure(const AudioSessionConfiguration.speech());
+    await session.configure(music
+        ? const AudioSessionConfiguration.music()
+        : const AudioSessionConfiguration.speech());
   }
 
   final _proxy = AudioBookProxy();
   List<ja.AudioSource> _playlist = [];
-  bool _singleMode = false, _changing = false;
+  bool _singleMode = false;
+  Future<void>? _singleLoad;
+  int _queueRequest = 0;
+  int _chapterRequest = 0;
+  int _playRequest = 0;
   int _offset = 0;
+  final _singleIndex = StreamController<int>.broadcast();
+  final _chapterErrors = StreamController<AudioBookFailure>.broadcast(sync: true);
   StreamSubscription<ja.PlayerState>? _completion;
   VoidCallback? _removePreloadClearer;
   static Future<void>? _background;
@@ -186,13 +201,45 @@ class JustAudioBookPlayer implements AudioBookPlayer {
   @override
   Stream<bool> get playing => _player.playingStream;
   @override
-  Stream<int?> get index => _player.currentIndexStream.map(
-    (index) => index == null ? null : index + (_singleMode ? _offset : 0),
-  );
+  AudioBookPlayhead get playhead {
+    final event = _player.playbackEvent;
+    return (
+      index: _singleMode
+          ? (_singleLoad == null && event.currentIndex != null ? _offset : null)
+          : event.currentIndex,
+      position: _player.position,
+      duration: event.duration,
+    );
+  }
+
   @override
-  Stream<String> get errors => _player.errorStream.map((error) {
-    LumeLog.warn('[audioBook] 播放器错误: $error');
-    return _proxy.lastError ?? '音频播放失败，请检查源和网络';
+  Stream<int?> get index => Stream<int?>.multi((events) {
+    final native = _player.currentIndexStream.listen((value) {
+      if (!_singleMode) events.addSync(value);
+    });
+    final single = _singleIndex.stream.listen(events.addSync);
+    if (_singleMode && _singleLoad == null && _playlist.isNotEmpty) {
+      events.add(_offset);
+    }
+    events.onCancel = () async {
+      await native.cancel();
+      await single.cancel();
+    };
+  }).distinct();
+  @override
+  Stream<AudioBookFailure> get errors => Stream<AudioBookFailure>.multi((events) {
+    final native = _player.errorStream.listen((error) {
+      LumeLog.warn('[audioBook] 播放器错误: $error');
+      // setAudioSource reports load failures to the operation that selected
+      // the chapter. It knows whether that selection is still current.
+      if (_singleLoad != null) return;
+      events.addSync(AudioBookFailure(_proxy.lastError ?? '音频播放失败，请检查源和网络'));
+    });
+    final chapters = _chapterErrors.stream.listen(events.addSync);
+    events.onCancel = () async {
+      await native.cancel();
+      await chapters.cancel();
+    };
   });
   @override
   Future<void> load(
@@ -200,29 +247,43 @@ class JustAudioBookPlayer implements AudioBookPlayer {
     int index = 0,
     Duration position = Duration.zero,
   }) async {
-    await _configureSession();
+    final queueRequest = ++_queueRequest;
+    _playRequest++;
+    _chapterRequest++;
+    if (_configureSession != null) {
+      await _configureSession();
+    } else {
+      await _configureAudioSession(sources.isNotEmpty && sources.first.music);
+    }
+    // Releasing focus or loading another book can supersede system setup.
+    if (queueRequest != _queueRequest) return;
     final urls = await _proxy.prepare(sources);
+    if (queueRequest != _queueRequest) return;
     // Huge native queues serialize thousands of MediaItems on route entry.
     // Keep the Dart catalog intact and load chapters on demand instead.
     _singleMode = !MediaPreload.instance.audio || sources.length > 200;
     _removePreloadClearer ??= MediaPreload.instance.onClear(() async {
-      if (_playlist.isEmpty || _changing || _singleMode) return;
-      final index = (_player.currentIndex ?? 0) + (_singleMode ? _offset : 0);
-      final wasPlaying = _player.playing;
+      if (_playlist.isEmpty || _singleLoad != null || _singleMode) return;
+      final index = _player.currentIndex ?? 0;
       final position = _player.position;
       _singleMode = true;
-      await _loadSingle(index, position: position, play: wasPlaying);
+      await _loadSingle(index, position: position);
     });
     _completion ??= _player.playerStateStream.listen((state) {
-      if (_singleMode &&
-          !_changing &&
-          state.processingState == ja.ProcessingState.completed &&
-          _offset + 1 < _playlist.length) {
-        unawaited(
-          _loadSingle(_offset + 1, play: true).catchError((Object error) {
-            LumeLog.warn('[audioBook] 自动切集失败：$error');
-          }),
-        );
+      if (_singleLoad != null ||
+          _playlist.isEmpty ||
+          !state.playing ||
+          !_player.playing ||
+          state.processingState != ja.ProcessingState.completed ||
+          _player.processingState != ja.ProcessingState.completed) {
+        return;
+      }
+      if (_singleMode && _offset + 1 < _playlist.length) {
+        unawaited(_loadSingle(_offset + 1, automatic: true));
+      } else {
+        unawaited(pause().catchError((Object error) {
+          LumeLog.warn('[audioBook] 播放结束后暂停失败：$error');
+        }));
       }
     });
     try {
@@ -234,6 +295,7 @@ class JustAudioBookPlayer implements AudioBookPlayer {
               id: sources[i].id,
               title: sources[i].episode.title,
               album: sources[i].album,
+              artist: sources[i].artist,
               artUri: sources[i].cover == null
                   ? null
                   : Uri.tryParse(sources[i].cover!),
@@ -258,55 +320,99 @@ class JustAudioBookPlayer implements AudioBookPlayer {
   }
 
   @override
-  Future<void> play() => _player.play();
+  Future<void> play() async {
+    final request = ++_playRequest;
+    if (_player.processingState == ja.ProcessingState.completed) {
+      await _player.seek(Duration.zero);
+      if (request != _playRequest) return;
+    }
+    await _player.play();
+  }
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() {
+    _playRequest++;
+    return _player.pause();
+  }
   Future<void> _loadSingle(
     int index, {
     Duration position = Duration.zero,
-    bool play = false,
+    bool automatic = false,
   }) async {
-    if (index < 0 || index >= _playlist.length || _changing) return;
-    _changing = true;
+    if (index < 0 || index >= _playlist.length) return;
+    final request = ++_chapterRequest;
+    final playlist = _playlist;
+    final pending = _singleLoad;
+    if (pending != null) {
+      // A failed chapter must not prevent the next selection from loading.
+      await pending.catchError((_) {});
+      if (request != _chapterRequest || !identical(playlist, _playlist)) return;
+    }
+    final load = Future<Duration?>.sync(
+      () => _player.setAudioSource(playlist[index], initialPosition: position),
+    );
+    _singleLoad = load;
     try {
-      _offset = index;
-      await _player.setAudioSource(_playlist[index], initialPosition: position);
-      if (play) unawaited(_player.play());
+      await load;
+      if (identical(playlist, _playlist)) {
+        _offset = index;
+        _singleIndex.add(index);
+      }
+    } catch (error) {
+      if (!automatic) rethrow;
+      if (request != _chapterRequest || !identical(playlist, _playlist)) return;
+      LumeLog.warn('[audioBook] 自动切集失败：$error');
+      _chapterErrors.add(AudioBookFailure(
+        _proxy.lastError ?? '加载失败，请检查源和网络',
+        retryChapter: index,
+      ));
+      try {
+        await pause();
+      } catch (error) {
+        LumeLog.warn('[audioBook] 自动切集失败后暂停失败：$error');
+      }
     } finally {
-      _changing = false;
+      if (identical(_singleLoad, load)) _singleLoad = null;
     }
   }
 
   @override
-  Future<void> stop() => _player.stop();
+  Future<void> stop() {
+    _playRequest++;
+    _chapterRequest++;
+    return _player.stop();
+  }
   @override
   Future<void> seek(Duration value, {int? index}) =>
       _singleMode && index != null
-      ? _loadSingle(index, position: value, play: _player.playing)
+      ? _loadSingle(index, position: value)
       : _player.seek(value, index: index);
   @override
-  Future<void> next() => _singleMode
-      ? _loadSingle(_offset + 1, play: _player.playing)
-      : _player.seekToNext();
+  Future<void> next() =>
+      _singleMode ? _loadSingle(_offset + 1) : _player.seekToNext();
   @override
-  Future<void> previous() => _singleMode
-      ? _loadSingle(_offset - 1, play: _player.playing)
-      : _player.seekToPrevious();
+  Future<void> previous() =>
+      _singleMode ? _loadSingle(_offset - 1) : _player.seekToPrevious();
   @override
   Future<void> speed(double value) => _player.setSpeed(value);
   @override
   Future<void> release() async {
+    _queueRequest++;
+    _playRequest++;
+    _chapterRequest++;
+    _playlist = [];
     _removePreloadClearer?.call();
     _removePreloadClearer = null;
     await _completion?.cancel();
     _completion = null;
-    _playlist = [];
     await _player.stop();
     await _player.clearAudioSources();
     _proxy.reset();
   }
 
   Future<void> disposeNative() async {
+    _queueRequest++;
+    await _chapterErrors.close();
+    await _singleIndex.close();
     await _proxy.close();
     await _player.dispose();
   }
@@ -342,9 +448,18 @@ class AudioBookSession extends ChangeNotifier {
   Timer? _sleep;
   DateTime _savedAt = DateTime.fromMillisecondsSinceEpoch(0);
   int _generation = 0;
+  int _seekRevision = 0;
+  static const _seekError = '跳转失败，请重试';
+  bool _seekFailed = false;
+  Future<void>? _pendingSeek;
+  Duration _confirmedSeekPosition = Duration.zero;
+  int _pauseRevision = 0;
   Future<void> _loads = Future.value();
   List<AudioBookTrack> _tracks = [];
-  bool _ready = false;
+  // A retry target may differ from the last confirmed listening position.
+  ({int? index, Duration? position, bool resume})? _pendingStart;
+  int? _readyGeneration;
+  bool get _ready => _readyGeneration != null;
   bool _acceptEvents = false;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   final progress = ValueNotifier<(Duration, Duration)>((
@@ -375,24 +490,40 @@ class AudioBookSession extends ChangeNotifier {
     MediaResource entry,
     List<AudioBookTrack> sources, {
     int? index,
+    Duration? initialPosition,
     bool restart = false,
   }) async {
-    if (!restart &&
-        resource?.id == entry.id &&
+    final active = resource;
+    final returningToChapter = !restart &&
+        active?.id == entry.id &&
         _ready &&
         error == null &&
-        (index == null || index == current) &&
+        (index == null ||
+            index >= 0 && index < sources.length &&
+                sources[index].episode.id == _tracks[current].episode.id);
+    if (returningToChapter &&
+        _readyGeneration == _generation &&
+        active?.originSection == entry.originSection &&
+        active?.sourceId == entry.sourceId &&
+        active?.itemId == entry.itemId &&
         sources.length == _tracks.length &&
-        List.generate(
-          sources.length,
-          (i) => i,
-        ).every((i) => sources[i].id == _tracks[i].id)) {
+        sources.indexed.every((row) => _tracks[row.$1].canReuseFor(row.$2))) {
+      if (initialPosition != null) await seek(initialPosition);
       return;
     }
-    final task = load(entry, sources, index: index, resume: !restart);
+    final shouldPlay = !returningToChapter || playing;
+    final task = load(
+      entry,
+      sources,
+      index: index,
+      resume: !restart,
+      initialPosition: initialPosition ?? (restart ? Duration.zero : null),
+    );
     final generation = _generation;
+    final pauseRevision = _pauseRevision;
     await task;
-    if (generation == _generation &&
+    if (shouldPlay && generation == _generation &&
+        pauseRevision == _pauseRevision &&
         resource?.id == entry.id &&
         error == null) {
       unawaited(play());
@@ -402,15 +533,22 @@ class AudioBookSession extends ChangeNotifier {
   Future<void> retry() async {
     final entry = resource;
     if (entry == null || loading) return;
+    final start = _pendingStart;
     final task = load(
       entry,
       _tracks,
-      index: current,
-      initialPosition: position,
+      index: start == null ? current : start.index,
+      initialPosition: start == null ? position : start.position,
+      resume: start?.resume ?? false,
     );
     final generation = _generation;
+    final pauseRevision = _pauseRevision;
     await task;
-    if (generation == _generation && error == null) unawaited(play());
+    if (generation == _generation &&
+        pauseRevision == _pauseRevision &&
+        error == null) {
+      unawaited(play());
+    }
   }
 
   Future<void> load(
@@ -446,7 +584,11 @@ class AudioBookSession extends ChangeNotifier {
         ? resource!.episodes[current].id
         : null;
     final wasReady = _ready;
-    _ready = false;
+    _pendingStart = (index: requested, position: initialPosition, resume: restore);
+    _readyGeneration = null;
+    seeking = false;
+    _seekFailed = false;
+    _pendingSeek = null;
     _acceptEvents = false;
     _sleep?.cancel();
     sleepAt = null;
@@ -465,8 +607,14 @@ class AudioBookSession extends ChangeNotifier {
     notifyListeners();
     _tracks = sources;
     try {
+      await _player?.stop();
+      if (generation != _generation) return;
       if (sources.isEmpty) throw const AudioBookFailure('资源没有可播放的章节');
-      await PlaybackFocus.acquire('audioBook');
+      await PlaybackFocus.acquire(
+        'audioBook',
+        stillWanted: () => generation == _generation,
+      );
+      if (generation != _generation) return;
       await settings.load();
       if (generation != _generation) return;
       final saved = settings.positions[entry.id];
@@ -493,6 +641,7 @@ class AudioBookSession extends ChangeNotifier {
       position = resume;
       duration = Duration.zero;
       current = index;
+      _pendingStart = null;
       final policy = MediaPreload.instance;
       final configuration = '${policy.bufferSeconds}|${policy.capacityMb}';
       if (_player != null && _preloadConfiguration != configuration) {
@@ -511,22 +660,9 @@ class AudioBookSession extends ChangeNotifier {
         _player = _factory();
         _preloadConfiguration = configuration;
         _subscriptions.addAll([
-          _player!.position.listen((value) {
-            if (!_acceptEvents) return;
-            if (!seeking) {
-              position = value;
-              _notifyProgress();
-            }
-            if (!loading &&
-                DateTime.now().difference(_savedAt).inSeconds >= 5) {
-              _remember();
-            }
-          }),
-          _player!.duration.listen((value) {
-            if (!_acceptEvents) return;
-            duration = value ?? Duration.zero;
-            _notifyProgress();
-          }),
+          _player!.position.listen((_) => _syncPlayhead()),
+          _player!.duration.listen((_) => _syncPlayhead()),
+          _player!.index.listen((_) => _syncPlayhead()),
           _player!.playing.listen((value) {
             if (!_acceptEvents) return;
             if (playing == value) return;
@@ -534,20 +670,23 @@ class AudioBookSession extends ChangeNotifier {
             notifyListeners();
             if (!loading && !value) _remember();
           }),
-          _player!.index.listen((value) {
+          _player!.errors.listen((failure) {
             if (!_acceptEvents) return;
-            current = value ?? 0;
-            notifyListeners();
-          }),
-          _player!.errors.listen((message) {
-            if (!_acceptEvents) return;
-            error = message;
+            final chapter = failure.retryChapter;
+            error = failure.message;
+            if (chapter != null && chapter >= 0 && chapter < _tracks.length) {
+              error = '${_tracks[chapter].episode.title}：${failure.message}';
+              _acceptEvents = false;
+              playing = false;
+              current = chapter;
+              position = duration = Duration.zero;
+              _remember();
+              _readyGeneration = null;
+            }
             notifyListeners();
           }),
         ]);
       }
-      _remember();
-      await _player!.stop();
       if (generation != _generation) return;
       _acceptEvents = true;
       loadingMessage = '正在加载音频…';
@@ -563,6 +702,8 @@ class AudioBookSession extends ChangeNotifier {
                 episode: track.episode,
                 album: track.album,
                 cover: track.cover,
+                artist: track.artist,
+                music: track.music,
                 resolve: () async {
                   if (generation == _generation && loading) {
                     loadingMessage = '正在解析音频地址…';
@@ -586,10 +727,11 @@ class AudioBookSession extends ChangeNotifier {
         await _player?.release();
         return;
       }
-      await _player!.speed(settings.speed);
+      _syncPlayhead();
+      await _player!.speed(sources.first.music ? 1 : settings.speed);
       if (generation != _generation) return;
-      _ready = true;
-      setSleep(settings.sleepMinutes);
+      _readyGeneration = generation;
+      setSleep(sources.first.music ? 0 : settings.sleepMinutes);
     } catch (failure, stack) {
       LumeLog.error('[audioBook] 加载失败: $failure', stack);
       if (generation == _generation) {
@@ -606,9 +748,31 @@ class AudioBookSession extends ChangeNotifier {
     }
   }
 
+  void _syncPlayhead() {
+    if (!_acceptEvents || seeking || _seekFailed) return;
+    // Index, duration and timer ticks arrive independently. Read all three
+    // from the current playback event even when an older tick arrives late.
+    final head = _player!.playhead;
+    final index = head.index;
+    if (index == null || index < 0 || index >= _tracks.length) return;
+    final changedChapter = current != index;
+    if (changedChapter && loading) return;
+    current = index;
+    position = head.position;
+    duration = head.duration ?? Duration.zero;
+    if (changedChapter) {
+      notifyListeners();
+    } else {
+      _notifyProgress();
+    }
+    if (changedChapter || DateTime.now().difference(_savedAt).inSeconds >= 5) {
+      _remember();
+    }
+  }
+
   void _remember() {
     final id = resource?.id;
-    if (id == null || loading || !_ready) return;
+    if (id == null || loading || seeking || !_ready) return;
     if (current >= 0 && current < (resource?.episodes.length ?? 0)) {
       settings.chapterIds[id] = resource!.episodes[current].id;
     }
@@ -628,20 +792,24 @@ class AudioBookSession extends ChangeNotifier {
       return;
     }
     if (_player == null || loading || error != null) return;
+    final generation = _generation;
     try {
       await _player!.play();
     } catch (_) {
+      if (generation != _generation) return;
       error = '音频播放失败';
       notifyListeners();
     }
   }
 
   Future<void> pause() async {
+    _pauseRevision++;
     await _player?.pause();
     _remember();
   }
 
   Future<void> stop() async {
+    _pauseRevision++;
     _remember();
     _sleep?.cancel();
     sleepAt = null;
@@ -650,30 +818,92 @@ class AudioBookSession extends ChangeNotifier {
   }
 
   Future<void> seek(Duration value, {int? index}) async {
-    if (!_ready && resource != null) {
-      await load(resource!, _tracks, index: index);
+    final entry = resource;
+    if (entry == null || loading) return;
+    if (index != null && (index < 0 || index >= _tracks.length)) return;
+    if (!_ready) {
+      // A bookmark seek on a released session can load directly at the
+      // requested time, without briefly selecting a different chapter.
+      await load(
+        entry,
+        _tracks,
+        index: index ?? current,
+        initialPosition: value,
+      );
+      return;
     }
+    final generation = _generation;
+    final revision = ++_seekRevision;
+    if (!seeking) _confirmedSeekPosition = position;
     seeking = true;
     position = value;
+    final previous = _pendingSeek;
+    Future<void> apply() async {
+      if (previous != null) await previous;
+      if (generation != _generation || revision != _seekRevision) return;
+      try {
+        // A failed native load may already have switched its internal index.
+        // Re-anchor a time-only retry to the chapter the listener actually heard.
+        final target = index ?? (_seekFailed ? current : null);
+        await _player!.seek(value, index: target);
+        if (generation == _generation) {
+          if (index != null) current = index;
+          _confirmedSeekPosition = value;
+          _seekFailed = false;
+          _pendingStart = null;
+          if (error == _seekError) error = null;
+        }
+      } catch (_) {
+        if (generation == _generation) {
+          _seekFailed = true;
+          if (revision == _seekRevision) {
+            error = _seekError;
+            _pendingStart = (index: index ?? current, position: value, resume: false);
+          }
+        }
+      }
+    }
+
+    final pending = _pendingSeek = apply();
     notifyListeners();
-    try {
-      await _player?.seek(value, index: index);
-    } catch (_) {
-      error = '跳转失败，请重试';
-    } finally {
+    await pending;
+    if (generation == _generation && revision == _seekRevision) {
+      _pendingSeek = null;
+      position = _confirmedSeekPosition;
       seeking = false;
+      final head = _player!.playhead;
+      if (!_seekFailed && head.index == current) {
+        duration = head.duration ?? Duration.zero;
+      }
       _remember();
       notifyListeners();
     }
   }
 
-  Future<void> next() async {
-    if (current + 1 < (resource?.episodes.length ?? 0)) await _player?.next();
+  Future<void> playChapter(int index) async {
+    final entry = resource;
+    if (entry == null || loading || index < 0 || index >= _tracks.length) {
+      return;
+    }
+    if (!_ready || error != null) {
+      await open(entry, _tracks, index: index, restart: true);
+      return;
+    }
+    final generation = _generation;
+    final pauseRevision = _pauseRevision;
+    final seekRevision = _seekRevision + 1;
+    await seek(Duration.zero, index: index);
+    if (generation == _generation &&
+        pauseRevision == _pauseRevision &&
+        seekRevision == _seekRevision &&
+        error == null) {
+      unawaited(play());
+    }
   }
 
-  Future<void> previous() async {
-    if (current > 0) await _player?.previous();
-  }
+  Future<void> next() => seek(Duration.zero, index: current + 1);
+
+  Future<void> previous() => seek(Duration.zero, index: current - 1);
 
   Future<void> setSpeed(double speed) async {
     settings.speed = speed.clamp(.5, 3);
@@ -697,11 +927,13 @@ class AudioBookSession extends ChangeNotifier {
 
   Future<void> release() async {
     _remember();
+    if (_seekFailed) _pendingStart = null;
     final generation = ++_generation;
     loading = false;
+    seeking = false;
     _sleep?.cancel();
     sleepAt = null;
-    _ready = false;
+    _readyGeneration = null;
     _acceptEvents = false;
     final releaseRuntime = _releaseRuntime;
     _releaseRuntime = null;
@@ -719,7 +951,7 @@ class AudioBookSession extends ChangeNotifier {
   Future<void> shutdown() async {
     _remember();
     _generation++;
-    _ready = false;
+    _readyGeneration = null;
     _acceptEvents = false;
     loading = false;
     _sleep?.cancel();

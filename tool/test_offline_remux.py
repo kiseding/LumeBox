@@ -51,6 +51,8 @@ def check(directory, source=None):
 plain = root / 'plain'
 plain.mkdir()
 run(*base, *video, *audio, '-t', '4', *codec, *hls, str(plain / 'index.m3u8'))
+playlist = plain / 'index.m3u8'
+playlist.write_text(playlist.read_text().replace('#EXTINF:1.000000,', '#EXTINF:1.000000,URI="missing.ts"'))
 check(plain)
 
 fragmented = root / 'fmp4'
@@ -62,13 +64,21 @@ check(fragmented)
 separate = root / 'separate'
 (separate / 'video').mkdir(parents=True)
 (separate / 'audio').mkdir()
+(separate / 'dub').mkdir()
 run(*base, *video, '-t', '4', *codec, '-an', *hls, str(separate / 'video/index.m3u8'))
 run(*base, *audio, '-t', '4', '-c:a', 'aac', *hls, str(separate / 'audio/index.m3u8'))
+run(*base, '-f', 'lavfi', '-i', 'sine=frequency=880:sample_rate=48000',
+    '-t', '4', '-c:a', 'aac', *hls, str(separate / 'dub/index.m3u8'))
 (separate / 'index.m3u8').write_text(
-    '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="original",'
-    'DEFAULT=YES,URI="audio/index.m3u8"\n'
+    '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Original,URI=missing",'
+    'LANGUAGE="en",DEFAULT=NO,URI="audio/index.m3u8"\n'
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Mandarin",'
+    'LANGUAGE="zh-Hans",DEFAULT=YES,URI="dub/index.m3u8"\n'
     '#EXT-X-STREAM-INF:BANDWIDTH=200000,AUDIO="audio"\nvideo/index.m3u8\n')
 check(separate)
+tracks = [s for s in probe(separate / 'merged.mp4.part')['streams'] if s['codec_type'] == 'audio']
+assert [(s['tags']['language'], s['tags']['handler_name'], s['disposition']['default']) for s in tracks] == [
+    ('eng', 'Original,URI=missing', 0), ('zho', 'Mandarin', 1)], tracks
 
 encrypted = root / 'encrypted'
 encrypted.mkdir()
@@ -76,6 +86,8 @@ encrypted.mkdir()
 (root / 'key-info').write_text(f'key\n{encrypted / "key"}\n')
 run(*base, *video, *audio, '-t', '4', *codec, *hls,
     '-hls_key_info_file', str(root / 'key-info'), str(encrypted / 'index.m3u8'))
+playlist = encrypted / 'index.m3u8'
+playlist.write_text(playlist.read_text().replace('#EXT-X-KEY:', '#EXT-X-KEY:X-NOTE=",METHOD=NONE",'))
 check(encrypted)
 
 # Failure and cancellation must leave input intact and no completed-looking output.
@@ -94,3 +106,37 @@ for name, contents, cancel in [
     assert not (folder / '.remux-work').exists(), name
     assert (folder / 'index.m3u8').read_text() == contents
 print('Native remux: TS, fMP4, separate audio, AES-128, missing input, path escape and cancellation passed')
+
+# Serve one init and independently requested HEVC fragments, including a seek
+# (conversion runs in reverse order). Compare every decoded video and audio frame.
+hevc = root / 'hevc-ts'
+hevc.mkdir()
+run(*base, *video, *audio, '-t', '4', '-c:v', 'libx265', '-g', '10',
+    '-x265-params', 'scenecut=0', '-c:a', 'aac', *hls, str(hevc / 'index.m3u8'))
+parts = sorted(hevc.glob('*.ts'))
+assert len(parts) >= 2
+playlist = (hevc / 'index.m3u8').read_text().replace('#EXT-X-VERSION:3',
+    '#EXT-X-VERSION:7\n#EXT-X-MAP:URI="init.mp4"')
+for i in reversed(range(len(parts))):
+    output = hevc / 'mux.mp4'
+    run(executable, '--fragment', str(i + 1), str(parts[i]), str(output))
+    data = output.read_bytes()
+    offset = 0
+    while data[offset + 4:offset + 8] != b'moof':
+        size = int.from_bytes(data[offset:offset + 4], 'big')
+        assert 8 <= size <= len(data) - offset, 'Malformed MP4 box'
+        offset += size
+    if not i:
+        (hevc / 'init.mp4').write_bytes(data[:offset])
+    fragment = parts[i].with_suffix('.m4s')
+    fragment.write_bytes(data[offset:])
+    playlist = playlist.replace(parts[i].name, fragment.name)
+converted = hevc / 'converted.m3u8'
+converted.write_text(playlist)
+assert hashes(converted) == hashes(hevc / 'index.m3u8'), 'HEVC playback frames changed'
+for path in [converted, hevc / 'index.m3u8']:
+    pcm = run('ffmpeg', '-v', 'error', '-i', str(path), '-map', '0:a:0', '-f', 's16le', '-').stdout
+    if path == converted:
+        decoded = pcm
+    else:
+        assert pcm == decoded, 'AAC playback samples changed'

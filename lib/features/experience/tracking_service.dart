@@ -11,6 +11,7 @@ import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
 import '../video/video_download_center.dart';
+import '../video/video_episode_catalog.dart';
 
 class TrackingReport {
   const TrackingReport(
@@ -116,7 +117,7 @@ class TrackingService with WidgetsBindingObserver {
               return TrackingReport(success, failed, fresh, true);
             }
             if (lib.section == Section.video) {
-              // Migrate previous per-route IDs without announcing existing episodes again.
+              // Older baselines used route IDs or one key for all parts of an episode.
               final baselines = Map<String, dynamic>.from(
                 center.data['baselines'] as Map? ?? {},
               );
@@ -126,12 +127,22 @@ class TrackingService with WidgetsBindingObserver {
                   for (final c in chapters)
                     jsonEncode([c.line, c.id]): TrackingResume.chapterKey(c),
                 };
-                baselines[ref.key] = old
+                final migrated = old
                     .map((key) => aliases[key] ?? key)
-                    .toSet()
-                    .toList();
+                    .toSet();
+                if (center.data['episodeParts.${ref.key}'] != true) {
+                  final previous = old.toSet();
+                  for (final key in aliases.values) {
+                    final separator = key.lastIndexOf(':');
+                    if (separator > 0 && previous.contains(key.substring(0, separator))) {
+                      migrated.add(key);
+                    }
+                  }
+                }
+                baselines[ref.key] = migrated.toList();
                 center.data['baselines'] = baselines;
               }
+              center.data['episodeParts.${ref.key}'] = true;
             }
             final added = center.compare(
               ref,
@@ -157,10 +168,15 @@ class TrackingService with WidgetsBindingObserver {
                 center.enabled('downloadUpdates') &&
                 lib.section == Section.video) {
               final ids = added.map((c) => c.key).toSet();
+              final indices = {
+                for (final line in VideoEpisodeCatalog.group(chapters).values)
+                  for (var i = 0; i < line.length; i++) line[i].id: i,
+              };
               await VideoDownloadCenter.instance.enqueue(
                 sourceId: item.sourceId,
                 itemId: item.itemId,
                 title: item.title,
+                chapterIndices: indices,
                 chapters: chapters
                     .where((c) => ids.remove(TrackingResume.chapterKey(c)))
                     .take(center.number('nextDownloads', 2).clamp(1, 5))

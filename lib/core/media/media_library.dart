@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../session/section.dart';
+import '../cat/cat_service.dart';
 import '../session/privacy_settings.dart';
 
 enum ResourceKind {
@@ -40,6 +41,7 @@ class MediaTrackInfo {
 class MediaTrackProbe {
   const MediaTrackProbe();
   static final _cache = <String, ({DateTime time, MediaTrackInfo value})>{};
+  static final _pending = <String, Future<MediaTrackInfo>>{};
   Future<MediaTrackInfo> inspect(
     Uri uri, {
     Map<String, String> headers = const {},
@@ -55,13 +57,23 @@ class MediaTrackProbe {
         DateTime.now().difference(cached.time) < const Duration(minutes: 5)) {
       return Future.value(cached.value);
     }
+    final pending = _pending[key];
+    if (pending != null) return pending;
     if (_cache.length >= 64) _cache.remove(_cache.keys.first);
-    return _inspect(uri, headers, includeDimensions: includeDimensions).then((
-      value,
-    ) {
-      _cache[key] = (time: DateTime.now(), value: value);
-      return value;
-    });
+    final inspection =
+        _inspect(uri, headers, includeDimensions: includeDimensions)
+            .then((value) {
+              final measured = (value.width ?? 0) > 0 && (value.height ?? 0) > 0;
+              if (value.known && (!includeDimensions || !value.video || measured)) {
+                _cache[key] = (time: DateTime.now(), value: value);
+              }
+              return value;
+            })
+            .whenComplete(() {
+              _pending.remove(key);
+            });
+    _pending[key] = inspection;
+    return inspection;
   }
 
   Future<MediaTrackInfo> _inspect(
@@ -136,9 +148,16 @@ class MediaResource {
   final Section? originSection;
   final String? sourceId, itemId, cover;
   final List<ResourceEpisode> episodes;
-  static String sourceKey(Section section, String source, String item) => sha256
-      .convert(utf8.encode(jsonEncode([section.id, source, item])))
-      .toString();
+  static String sourceKey(Section section, String source, String item) {
+    // Listening positions and manual placement use this ID across app versions.
+    final keySection = section == Section.cat
+        ? CatSite.legacyMediaSection(source) ?? section
+        : section;
+    return sha256
+        .convert(utf8.encode(jsonEncode([keySection.id, source, item])))
+        .toString();
+  }
+
   MediaResource placed(ResourceKind kind, Section section) => MediaResource(
     id: id,
     title: title,
@@ -163,6 +182,19 @@ class MediaResource {
     'cover': cover,
     'manual': manual,
   };
+  static Section? _storedOrigin(Map data) {
+    final section = Section.values
+        .where((s) => s.id == data['originSection'])
+        .firstOrNull;
+    final source = data['sourceId'] as String?;
+    if (source != null &&
+        section != null &&
+        section == CatSite.legacyMediaSection(source)) {
+      return Section.cat;
+    }
+    return section;
+  }
+
   static MediaResource fromJson(Map data) => MediaResource(
     id: data['id'] as String,
     title: data['title'] as String,
@@ -173,9 +205,7 @@ class MediaResource {
     episodes: (data['episodes'] as List)
         .map((e) => ResourceEpisode.fromJson(e as Map))
         .toList(),
-    originSection: Section.values
-        .where((s) => s.id == data['originSection'])
-        .firstOrNull,
+    originSection: _storedOrigin(data),
     sourceId: data['sourceId'] as String?,
     itemId: data['itemId'] as String?,
     cover: data['cover'] as String?,
@@ -200,8 +230,9 @@ class MediaLibrary extends ChangeNotifier {
       .toList();
   MediaResource? byId(String id) => _items[id];
   Future<void> boot({Directory? directory}) =>
-      _loading ??= _boot(directory).catchError((_) {
-        notifyListeners();
+      _loading ??= _boot(directory).onError((Object error, StackTrace stack) {
+        _loading = null;
+        Error.throwWithStackTrace(error, stack);
       });
   Future<void> _boot(Directory? directory) async {
     final base = directory ?? await getApplicationSupportDirectory();

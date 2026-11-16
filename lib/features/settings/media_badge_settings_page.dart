@@ -60,22 +60,29 @@ class MediaBadgeSettingsPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            const Text('显示方式'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final entry in const [
-                  ('text', '纯文字'),
-                  ('compact', '紧凑徽章'),
-                  ('graphic', '图文徽章'),
-                ])
-                  ChoiceChip(
-                    label: Text(entry.$2),
-                    selected: settings.style == entry.$1,
-                    onSelected: (_) => settings.setStyle(entry.$1),
+            GlassCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('显示方式'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final entry in const [
+                        ('text', '纯文字'),
+                        ('compact', '紧凑徽章'),
+                        ('graphic', '图文徽章'),
+                      ])
+                        ChoiceChip(
+                          label: Text(entry.$2),
+                          selected: settings.style == entry.$1,
+                          onSelected: (_) => settings.setStyle(entry.$1),
+                        ),
+                    ],
                   ),
-              ],
+                ],
+              ),
             ),
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
@@ -154,19 +161,22 @@ class MediaBadgeSettingsPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            ExpansionTile(
-              title: const Text('显示哪些规格'),
-              subtitle: const Text('每一类都可以单独关闭'),
-              children: [
-                for (final kind in MediaBadgeKind.values)
-                  SwitchListTile(
-                    secondary: Icon(kind.icon),
-                    title: Text(kind.label),
-                    value: settings.enabled('kind.${kind.name}'),
-                    onChanged: (value) =>
-                        settings.set('kind.${kind.name}', value),
-                  ),
-              ],
+            GlassCard(
+              padding: EdgeInsets.zero,
+              child: ExpansionTile(
+                title: const Text('显示哪些规格'),
+                subtitle: const Text('每一类都可以单独关闭'),
+                children: [
+                  for (final kind in MediaBadgeKind.values)
+                    SwitchListTile(
+                      secondary: Icon(kind.icon),
+                      title: Text(kind.label),
+                      value: settings.enabled('kind.${kind.name}'),
+                      onChanged: (value) =>
+                          settings.set('kind.${kind.name}', value),
+                    ),
+                ],
+              ),
             ),
             const Padding(
               padding: EdgeInsets.all(12),

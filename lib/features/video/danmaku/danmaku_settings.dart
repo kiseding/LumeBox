@@ -201,7 +201,7 @@ class DanmakuSettings {
     return {
       ...toJson(),
       'rows': pipRows,
-      'fontScale': (fontScale * .9).clamp(.5, 1.5),
+      'fontScale': fontScale.clamp(1.15, 1.8),
       'strokeWidth': strokeWidth.clamp(0, .8),
       'lineSpacing': lineSpacing.clamp(1.5, 3),
       'maxOnScreen': maxOnScreen.clamp(1, pipRows * 2),

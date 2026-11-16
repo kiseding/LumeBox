@@ -26,21 +26,24 @@ import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/source/source.dart';
 import 'package:lume_box/features/video/video_detail_page.dart';
+import 'package:lume_box/features/video/video_download_center.dart';
 import 'package:lume_box/features/video/direct_video_source.dart';
 import 'package:lume_box/features/video/video_play_target.dart';
-import 'package:lume_box/features/video/video_page.dart';
 import 'package:lume_box/features/video/video_player_page.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 
 import 'support/fake_reading_source.dart';
-import 'support/fake_source_manager.dart';
 
 class DetailSource extends FakeReadingDataSource {
   DetailSource() : super(section: Section.video);
   int parses = 0;
+  Completer<VideoContent>? delayedContent;
+  Completer<void>? resolvingContent;
   bool failParse = false;
   String extension = 'mp4';
+  List<VideoQuality> qualities = [];
   bool failDetail = false;
+  String workTitle = '详情测试片';
   @override
   Future<SourceList> list({
     String? categoryId,
@@ -59,7 +62,7 @@ class DetailSource extends FakeReadingDataSource {
     return SourceDetail(
       mediaType: 'video',
       id: id,
-      title: '详情测试片',
+      title: workTitle,
       description: '源站原始简介',
     );
   }
@@ -75,12 +78,17 @@ class DetailSource extends FakeReadingDataSource {
     required String chapterId,
   }) async {
     parses++;
+    if (delayedContent case final pending?) {
+      resolvingContent?.complete();
+      return pending.future;
+    }
     if (failParse) {
       throw const SourceException(SourceErrorKind.network, 'fixture解析失败');
     }
     return VideoContent(
       url: Uri.parse('https://example.test/$chapterId.$extension'),
       headers: const {'Referer': 'https://source.test/watch'},
+      qualities: qualities,
     );
   }
 }
@@ -105,6 +113,14 @@ class MultiLineDetailSource extends DetailSource {
     SourceChapter(id: 'b1', title: '线路B · 第1集'),
     SourceChapter(id: 'b2', title: '线路B · 第2集'),
   ];
+}
+
+class _DelayedCatalog extends DetailSource {
+  final pending = Completer<List<SourceChapter>>();
+  @override
+  String get id => 'outdated';
+  @override
+  Future<List<SourceChapter>> chapters(String id) => pending.future;
 }
 
 class NumericDetailSource extends DetailSource {
@@ -140,6 +156,7 @@ class RoutePlayer extends AbstractPlayer {
   Future<void> load(PlayerMedia value) async {
     media = value;
     loads++;
+    state.value = const PlayerSnapshot();
     await loadGate?.future;
   }
 
@@ -185,6 +202,13 @@ void main() {
   late ReadingLibrary library;
   late DetailSource source;
   setUp(() async {
+    final testView = TestWidgetsFlutterBinding.instance.platformDispatcher.views.single;
+    testView.physicalSize = Size(800 * testView.devicePixelRatio, 900 * testView.devicePixelRatio);
+    addTearDown(testView.resetPhysicalSize);
+    // Detail fixtures do not depend on live TMDB requests or their spinner.
+    final tmdbEnabled = TmdbSettings.instance.enabled;
+    TmdbSettings.instance.enabled = false;
+    addTearDown(() => TmdbSettings.instance.enabled = tmdbEnabled);
     root = Directory.systemTemp.createTempSync('video-detail');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -223,7 +247,7 @@ void main() {
             source: source,
             item: const SourceItem(id: 'movie', title: '详情测试片'),
             library: library,
-            onPlay: (_, _, _, _) async => fail('下载入口不应播放视频'),
+            onPlay: (_, _, _, _, _) async => fail('下载入口不应播放视频'),
           ),
         ),
       );
@@ -265,7 +289,104 @@ void main() {
     });
   }
 
-  for (final extension in ['mp4', 'm3u8']) {
+  for (final delayCatalog in [false, true]) {
+    testWidgets('重新加载后旧请求不能替换剧集或播放源（延迟目录=$delayCatalog）', (tester) async {
+      final old = _DelayedCatalog();
+      final pendingSource = Completer<DataSource>();
+      var loads = 0;
+      VideoPlayTarget? played;
+      await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+        loadSource: () async {
+          if (++loads == 1) return delayCatalog ? old : pendingSource.future;
+          return source;
+        },
+        detectContent: false,
+        item: const SourceItem(id: 'refreshed-catalog', title: '测试'),
+        library: library,
+        onPlay: (_, _, target, _, _) async { played = target; },
+      )));
+      await tester.pump();
+      final dynamic state = tester.state(find.byType(VideoDetailPage));
+      final reload = state.load() as Future<void>;
+      await tester.pump();
+      await reload;
+      old.pending.complete(const [SourceChapter(id: 'stale', title: '过期剧集')]);
+      pendingSource.complete(old);
+      await tester.pumpAndSettle();
+      expect(state.chapters.first.id, 'e1');
+      await tester.runAsync(() async { await state.play(); });
+      expect(played?.sourceId, source.id);
+      expect(played?.chapterId, 'e1');
+      expect(old.parses, 0);
+      expect(source.parses, 1);
+    });
+  }
+
+  testWidgets('返回详情的退出动画中取址完成不会重新打开播放器', (tester) async {
+    final nav = GlobalKey<NavigatorState>();
+    final downloads = VideoDownloadCenter(directory: () async => root);
+    await tester.runAsync(downloads.boot);
+    var opens = 0;
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: nav,
+      home: const Scaffold(body: Text('列表')),
+    ));
+    nav.currentState!.push(MaterialPageRoute<void>(builder: (_) => VideoDetailPage(
+      source: source, item: const SourceItem(id: 'late-play', title: '测试'),
+      detectContent: false, library: library, downloadCenter: downloads,
+      onPlay: (_, _, _, _, _) async { opens++; },
+    )));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    late Future<void> play;
+    await tester.runAsync(() async {
+      final started = source.resolvingContent = Completer<void>();
+      source.delayedContent = Completer<VideoContent>();
+      play = state.play() as Future<void>;
+      await started.future.timeout(const Duration(seconds: 3));
+    });
+    expect(source.parses, 1);
+    nav.currentState!.pop();
+    expect(state.mounted, isTrue);
+    await tester.runAsync(() async {
+      source.delayedContent!.complete(VideoContent(url: Uri.parse('https://example.test/movie.mp4')));
+      await play.timeout(const Duration(seconds: 3));
+    });
+    await tester.pumpAndSettle();
+    expect(opens, 0);
+    expect(find.text('列表'), findsOneWidget);
+  });
+
+  testWidgets('详情起播使用默认清晰度和对应线路的请求头', (tester) async {
+    VideoPlayerSettingsStore(library).save(
+      const PlayerSettings(defaultQuality: DefaultQuality.hd),
+    );
+    source.qualities = [
+      for (final height in [1080, 720])
+        VideoQuality(
+          label: '${height}p',
+          url: Uri.parse('https://cdn.example/$height.mp4'),
+          headers: {'X-Track': '$height'},
+        ),
+    ];
+    PlayerMedia? played;
+    await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+      source: source,
+      item: const SourceItem(id: 'quality', title: '画质测试'),
+      library: library,
+      onPlay: (_, media, _, _, _) async { played = media; },
+    )));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('video-detail-play')));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pumpAndSettle();
+    expect(played?.uri, source.qualities.last.url);
+    expect(played?.headers, containsPair('X-Track', '720'));
+  });
+
+  for (final extension in ['mp4', 'm3u8', 'php', '']) {
     testWidgets('$extension 起播不等待额外音轨探测', (tester) async {
       source.extension = extension;
       var probes = 0, opened = 0;
@@ -285,7 +406,7 @@ void main() {
             source: source,
             item: SourceItem(id: 'fast-$extension', title: '详情测试片'),
             library: library,
-            onPlay: (media, target, qualities, prelaunch) async {
+            onPlay: (_, media, target, qualities, prelaunch) async {
               opened++;
             },
           ),
@@ -312,6 +433,113 @@ void main() {
     });
   }
 
+  for (final private in [false, true]) {
+    testWidgets('退出未写入进度的播放器时保留这次选择的集数（无痕=$private）', (tester) async {
+      library.saveProgress(VideoProgress(
+        section: Section.video, sourceId: source.id, itemId: 'return-detail',
+        chapterIndex: 0, chapterId: 'e1', chapterTitle: '第1集',
+        position: const Duration(seconds: 60), duration: const Duration(minutes: 5),
+        updatedAt: DateTime.now(),
+      ));
+      library.setSetting('history.incognito', private.toString());
+      VideoPlayTarget? played;
+      await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+        source: source, item: const SourceItem(id: 'return-detail', title: '详情测试片'),
+        library: library, initialChapterId: 'e2',
+        onPlay: (_, _, target, _, _) async { played = target; },
+      )));
+      await tester.pumpAndSettle();
+      final dynamic state = tester.state(find.byType(VideoDetailPage));
+      expect(state.selected, 1);
+      await tester.runAsync(() async { await state.play(); });
+      await tester.pumpAndSettle();
+      expect(played?.chapterId, 'e2');
+      expect(state.selected, 1);
+      expect(library.videoProgress('return-detail', sourceId: source.id)?.chapterId, 'e1');
+    });
+  }
+
+  testWidgets('原版详情倒序播放返回后，选集页签和海报条显示实际观看的一集', (tester) async {
+    final long = LongDetailSource();
+    await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+      source: long,
+      item: const SourceItem(id: 'reverse-return', title: '详情测试片'),
+      library: library,
+      onPlay: (_, _, _, _, _) async {
+        library.saveProgress(VideoProgress(
+          section: Section.video, sourceId: long.id, itemId: 'reverse-return',
+          chapterIndex: 202, chapterId: 'e203', chapterTitle: '第203集',
+          position: const Duration(seconds: 75), updatedAt: DateTime.now(),
+        ));
+      },
+    )));
+    await tester.pumpAndSettle();
+    final sort = find.byTooltip('倒序排列');
+    await Scrollable.ensureVisible(tester.element(sort), alignment: .5);
+    await tester.tap(sort);
+    await tester.pumpAndSettle();
+    final play = find.byKey(const Key('video-detail-play'));
+    await Scrollable.ensureVisible(tester.element(play), alignment: .5);
+    await tester.runAsync(() async {
+      await tester.tap(play);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(library.videoProgress('reverse-return', sourceId: long.id)?.chapterId, 'e203');
+    final range = find.byKey(const ValueKey('video-episode-range-0'));
+    expect(range, findsOneWidget);
+    await Scrollable.ensureVisible(tester.element(range), alignment: .25);
+    await tester.pumpAndSettle();
+    expect(find.text('230—181 集').hitTestable(), findsOneWidget);
+    expect(find.byKey(const ValueKey('video-detail-episode-202')).hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('紧凑版与选集弹层倒序分组标出实际集数，包括不足五十集的分组', (tester) async {
+    library.setSetting('video.detail.originalStyle', 'false');
+    await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+      source: LongDetailSource(), item: const SourceItem(id: 'reverse-labels', title: '长剧'),
+      library: library, onPlay: (_, _, _, _, _) async {},
+    )));
+    await tester.pumpAndSettle();
+    Future<void> tapVisible(Finder finder) async {
+      await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+    await tapVisible(find.byTooltip('倒序排列'));
+    final firstGroup = find.byKey(const ValueKey('video-compact-range-0'));
+    expect(find.descendant(of: firstGroup, matching: find.text('230–221 集')), findsOneWidget);
+    expect(find.byKey(const ValueKey('video-detail-episode-229')), findsOneWidget);
+    await tapVisible(find.byKey(const Key('video-detail-select-episodes')));
+    // The picker opens on the selected first episode, at the end of the reversed catalog.
+    final lastGroup = find.byKey(const ValueKey('video-episode-picker-range-4'));
+    expect(find.descendant(of: lastGroup, matching: find.text('30—1 集')), findsOneWidget);
+    expect(find.byKey(const ValueKey('video-detail-picker-episode-0')), findsOneWidget);
+  });
+
+  testWidgets('播放器换线并写入新进度后详情同步实际线路与集数', (tester) async {
+    final multi = MultiLineDetailSource();
+    await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+      source: multi, item: const SourceItem(id: 'switch-return', title: '详情测试片'),
+      library: library, initialChapterId: 'a1',
+      onPlay: (_, _, _, _, _) async {
+        library.saveProgress(VideoProgress(
+          sourceId: multi.id, itemId: 'switch-return', section: Section.video,
+          chapterIndex: 1, chapterId: 'b2', chapterTitle: '第2集',
+          position: const Duration(seconds: 30), duration: const Duration(minutes: 2),
+          updatedAt: DateTime.now(),
+        ));
+      },
+    )));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    await tester.runAsync(() async { await state.play(); });
+    await tester.pumpAndSettle();
+    expect(state.currentLine, '线路B');
+    expect(state.selected, 1);
+    expect(library.setting('video.line.work.["${multi.id}","switch-return"]'), '线路B');
+  });
+
   testWidgets('换源选择对应剧集，并把时间点写入目标源进度', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -329,7 +557,7 @@ void main() {
             position: Duration(seconds: 75),
             duration: Duration(minutes: 40),
           ),
-          onPlay: (_, target, _, _) async {
+          onPlay: (_, _, target, _, _) async {
             played = target;
           },
         ),
@@ -350,6 +578,78 @@ void main() {
       const Duration(seconds: 75),
     );
   });
+  testWidgets('无痕切线按当前线路续播，保留目标线路之前的记录', (tester) async {
+    final multi = MultiLineDetailSource();
+    for (final (id, seconds) in [('b2', 9), ('a2', 75)]) {
+      library.saveProgress(VideoProgress(
+        sourceId: multi.id, itemId: 'private-switch', section: Section.video,
+        chapterIndex: 1, chapterId: id, chapterTitle: '第2集',
+        updatedAt: DateTime.now(), position: Duration(seconds: seconds),
+        duration: const Duration(minutes: 4),
+      ));
+    }
+    library.setSetting('history.incognito', 'true');
+    VideoPlayTarget? target;
+    await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+      source: multi, item: const SourceItem(id: 'private-switch', title: '详情测试片'),
+      library: library, onPlay: (_, _, next, _, _) async { target = next; },
+    )));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.changeLine('线路B'), true);
+    await tester.pumpAndSettle();
+    expect(state.episodeProgress(1).position.inSeconds, 75);
+    await tester.runAsync(() async { await state.play(); });
+    await tester.pumpAndSettle();
+    expect(target?.chapterId, 'b2');
+    expect(target?.resumePosition?.inSeconds, 75);
+    expect(state.episodeProgress(1).position.inSeconds, 75);
+    expect(library.videoEpisodeProgress('private-switch', 'b2', sourceId: multi.id)?.position.inSeconds, 9);
+  });
+  testWidgets('目标明确标注第二季时，未知季数的唯一同集候选也需确认', (tester) async {
+    source.workTitle = '详情测试片 第二季';
+    await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+      source: source, item: const SourceItem(id: 'unknown-season', title: '详情测试片'),
+      library: library,
+      resumeRequest: const VideoResumeRequest(
+        title: '详情测试片', chapterTitle: '第2集', chapterIndex: 1,
+        position: Duration(minutes: 8), duration: Duration(minutes: 20),
+      ),
+      onPlay: (_, _, _, _, _) async => fail('确认前不能播放'),
+    )));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('确认续播剧集'), findsOneWidget);
+    expect(source.parses, 0);
+    expect(library.videoEpisodeProgress('unknown-season', 'e2', sourceId: source.id), isNull);
+    await tester.tap(find.widgetWithText(ListTile, '第2集'));
+    await tester.pumpAndSettle();
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.selected, 1);
+    expect(state.lineResume.position, const Duration(minutes: 8));
+  });
+  testWidgets('原作品续播用已知剧集 ID 恢复线路和时间，多个同集号无需重选', (tester) async {
+    final multi = MultiLineDetailSource();
+    await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+      source: multi,
+      item: const SourceItem(id: 'same-work', title: '详情测试片'),
+      library: library,
+      initialChapterId: 'b2',
+      resumeRequest: const VideoResumeRequest(
+        title: '详情测试片', chapterTitle: '第2集', chapterIndex: 1,
+        position: Duration(seconds: 75), duration: Duration(minutes: 40),
+      ),
+      onPlay: (_, _, _, _, _) async {},
+    )));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('确认续播剧集'), findsNothing);
+    final dynamic state = tester.state(find.byType(VideoDetailPage));
+    expect(state.currentLine, '线路B');
+    expect(state.chapters[state.selected].id, 'b2');
+    expect(state.episodeProgress(state.selected).position, const Duration(seconds: 75));
+  });
+
   testWidgets('换源存在多个相同集号时先确认，未选择前不解析播放', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -367,7 +667,7 @@ void main() {
             position: Duration(seconds: 60),
             duration: Duration.zero,
           ),
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -397,7 +697,7 @@ void main() {
             position: Duration(seconds: 60),
             duration: Duration.zero,
           ),
-          onPlay: (_, _, _, _) async => fail('未选择剧集不能自动播放'),
+          onPlay: (_, _, _, _, _) async => fail('未选择剧集不能自动播放'),
         ),
       ),
     );
@@ -412,6 +712,142 @@ void main() {
     expect(multi.parses, 0);
   });
 
+  for (final original in [true, false]) {
+    testWidgets('TMDB小标打开匹配及海报菜单，窄屏不增加顶栏按钮：$original', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      library.setSetting('video.detail.originalStyle', '$original');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VideoDetailPage(
+            source: source,
+            item: const SourceItem(id: 'movie', title: '详情测试片'),
+            library: library,
+            onPlay: (_, _, _, _, _) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final dynamic state = tester.state(find.byType(VideoDetailPage));
+      expect(find.byKey(const Key('video-detail-tmdb-idle')), findsOneWidget);
+      expect(find.byIcon(Icons.shield_outlined), findsOneWidget);
+      state.tmdb.loading = true;
+      state.tmdb.notifyListeners();
+      await tester.pump();
+      expect(find.byKey(const Key('video-detail-tmdb-loading')), findsOneWidget);
+      expect(find.text('TMDB · 加载中'), findsNothing);
+      state.tmdb.loading = false;
+      state.tmdb.status = 'fixture 请求失败';
+      state.tmdb.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('video-detail-tmdb-failed')), findsOneWidget);
+      expect(find.text('TMDB · 加载失败'), findsNothing);
+      state.tmdb.status = null;
+      state.tmdb.metadata = const TmdbMetadata(overview: '', posters: []);
+      state.tmdb.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('video-detail-tmdb-success')), findsOneWidget);
+      final badge = find.byKey(const Key('video-detail-tmdb-status'));
+      final match = find.byKey(const Key('video-detail-tmdb-match'));
+      final poster = find.byKey(const Key('video-detail-poster'));
+      expect(match, findsNothing);
+      expect(poster, findsNothing);
+      await tester.ensureVisible(badge);
+      await tester.tap(badge);
+      await tester.pumpAndSettle();
+      expect(tester.widget<PopupMenuItem<String>>(poster).enabled, isFalse);
+      expect(
+        tester.widget<PopupMenuItem<String>>(match).enabled,
+        state.tmdb.settings.configured && !state.tmdb.loading,
+      );
+      expect(find.text('配置 TMDB'), findsNothing);
+      expect(find.text('重新匹配TMDB'), findsOneWidget);
+      Navigator.of(tester.element(find.text('选择海报'))).pop();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('video-detail-more')));
+      await tester.tap(find.byKey(const Key('video-detail-more')));
+      await tester.pumpAndSettle();
+      expect(find.text('重新匹配TMDB'), findsNothing);
+      expect(find.text('选择海报'), findsNothing);
+      expect(find.text('TMDB 设置与测试'), findsOneWidget);
+      Navigator.of(tester.element(find.text('下载中心'))).pop();
+      await tester.pumpAndSettle();
+      state.tmdb.metadata = const TmdbMetadata(
+        overview: '',
+        posters: ['https://fixture.test/poster.jpg'],
+      );
+      state.tmdb.notifyListeners();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(badge);
+      await tester.tap(badge);
+      await tester.pumpAndSettle();
+      expect(tester.widget<PopupMenuItem<String>>(poster).enabled, isTrue);
+      await tester.tap(poster);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('tmdb-poster-choice-0')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+    });
+  }
+
+  for (final scale in [1.0, 1.6]) {
+    testWidgets('详情更多菜单宽度收紧、行对齐并保留分隔线，字号 $scale', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: VideoDetailPage(
+            source: source,
+            item: const SourceItem(id: 'movie', title: '详情测试片'),
+            library: library,
+            onPlay: (_, _, _, _, _) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('video-detail-more')));
+      await tester.pumpAndSettle();
+      final downloads = tester.getRect(
+        find.byKey(const Key('video-detail-menu-downloads')),
+      );
+      expect(downloads.width, 252);
+      final left = tester.getTopLeft(find.text('下载中心')).dx;
+      for (final label in [
+        '保持集数换源',
+        '图片信息 / 超分状态',
+        'Bangumi 追番',
+        '大封面版（旧版）',
+        '紧凑版（当前版）',
+        'TMDB 设置与测试',
+      ]) {
+        expect(tester.getTopLeft(find.text(label)).dx, closeTo(left, .01));
+      }
+      expect(find.byType(PopupMenuDivider), findsNWidgets(7));
+      if (scale == 1) {
+        expect(
+          tester
+              .getSize(find.byKey(const Key('video-detail-menu-original')))
+              .height,
+          44,
+        );
+      }
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byKey(const Key('video-detail-menu-compact')));
+      await tester.pumpAndSettle();
+      final dynamic state = tester.state(find.byType(VideoDetailPage));
+      expect(state.originalStyle, isFalse);
+    });
+  }
+
   testWidgets('沉浸详情的TMDB小标和评分放在类型旁，不挤占年份行', (tester) async {
     await tester.binding.setSurfaceSize(const Size(440, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -421,7 +857,7 @@ void main() {
           source: source,
           item: const SourceItem(id: 'brand', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -509,7 +945,7 @@ void main() {
           ),
           library: library,
           imagePipeline: pipeline,
-          onPlay: (_, _, _, _) async {
+          onPlay: (_, _, _, _, _) async {
             opened++;
           },
         ),
@@ -558,7 +994,7 @@ void main() {
           initialChapterId: 'e11',
           library: library,
           recordHistory: false,
-          onPlay: (_, target, _, _) async => opened = target,
+          onPlay: (_, _, target, _, _) async => opened = target,
         ),
       ),
     );
@@ -583,7 +1019,7 @@ void main() {
           source: NetdiskDiagnosticSource(),
           item: const SourceItem(id: 'netdisk', title: '网盘演示'),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -617,7 +1053,7 @@ void main() {
           source: source,
           item: const SourceItem(id: 'movie', title: '详情测试片'),
           library: library,
-          onPlay: (_, target, _, _) async => opened = target,
+          onPlay: (_, _, target, _, _) async => opened = target,
         ),
       ),
     );
@@ -669,7 +1105,7 @@ void main() {
     await tester.tap(
       find.ancestor(
         of: find.text('紧凑版（当前版）'),
-        matching: find.byType(CheckedPopupMenuItem<String>),
+        matching: find.byType(PopupMenuItem<String>),
       ),
     );
     await tester.pumpAndSettle();
@@ -719,7 +1155,7 @@ void main() {
     expect(avatar.width, 48);
     expect(avatar.left, greaterThan(castTitle.right));
     expect(avatar.center.dy, closeTo(castTitle.center.dy, .1));
-    expect(find.text('TMDB · 已匹配'), findsOneWidget);
+    expect(find.text('TMDB · 已匹配'), findsNothing);
     expect(find.textContaining('2026 · 剧情'), findsOneWidget);
     expect(find.text('相似影片 · 全站找片'), findsNothing);
     expect(find.text('推荐示例'), findsNothing);
@@ -764,7 +1200,7 @@ void main() {
             cover: 'https://fixture.test/poster.jpg',
           ),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -886,7 +1322,7 @@ void main() {
           source: MultiLineDetailSource(),
           item: const SourceItem(id: 'movie', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -923,7 +1359,7 @@ void main() {
           source: NumericDetailSource(),
           item: const SourceItem(id: 'numeric', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -967,7 +1403,7 @@ void main() {
           source: source,
           item: const SourceItem(id: 'long', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -993,70 +1429,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('播放器报错换线路仍播放同一集并恢复时间点', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(900, 500));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final source = MultiLineDetailSource();
-    final manager = FakeSourceManager(
-      sources: [
-        SourceDescriptor(
-          id: source.id,
-          name: source.name,
-          version: '1',
-          enabled: true,
-        ),
-      ],
-      opened: {source.id: source},
-    );
-    final player = RoutePlayer();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: VideoPlayerPage(
-          library: library,
-          sourceManager: manager,
-          playerFactory: (_) => player,
-          catalog: const RouteCatalog(),
-          media: PlayerMedia(uri: Uri.parse('https://example.test/a2.mp4')),
-          target: VideoPlayTarget(
-            sourceId: source.id,
-            itemId: 'movie',
-            title: '详情测试片',
-            chapterIndex: 1,
-            chapterId: 'a2',
-            chapterTitle: '第2集',
-          ),
-        ),
-      ),
-    );
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-    });
-    await tester.pumpAndSettle();
-    player.state.value = const PlayerSnapshot(
-      error: 'fixture连接失败',
-      position: Duration(seconds: 75),
-      duration: Duration(minutes: 40),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('更多恢复方式'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('换线路继续看'));
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    });
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('线路B'));
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-    });
-    await tester.pumpAndSettle();
-    expect(player.media!.uri.path, '/b2.mp4');
-    expect(player.seeks, contains(const Duration(seconds: 75)));
-    expect(source.parses, 1);
-    await tester.pumpWidget(const SizedBox());
-    await tester.pumpAndSettle();
-  });
-
   testWidgets('窄屏大字长剧集分页显示，选集弹层不一次构建全部按钮', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 850));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1071,7 +1443,7 @@ void main() {
           source: LongDetailSource(),
           item: const SourceItem(id: 'long', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -1082,7 +1454,7 @@ void main() {
     await tester.tap(
       find.ancestor(
         of: find.text('紧凑版（当前版）'),
-        matching: find.byType(CheckedPopupMenuItem<String>),
+        matching: find.byType(PopupMenuItem<String>),
       ),
     );
     await tester.pumpAndSettle();
@@ -1112,120 +1484,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('方向预检等待受限，先进入播放页，尺寸返回后复用同一实例横屏播放', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(400, 900));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final entryDirections = <List<dynamic>>[];
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'SystemChrome.setPreferredOrientations') {
-        entryDirections.add(call.arguments as List<dynamic>);
-      }
-      return null;
-    });
-    addTearDown(
-      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
-    );
-    final players = <RoutePlayer>[];
-    final loadGate = Completer<void>();
-    addTearDown(() {
-      if (!loadGate.isCompleted) loadGate.complete();
-    });
-    final manager = FakeSourceManager(
-      sources: [
-        SourceDescriptor(
-          id: source.id,
-          name: source.name,
-          version: '1',
-          enabled: true,
-        ),
-      ],
-      opened: {source.id: source},
-    );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: VideoPage(
-          library: library,
-          sourceManager: manager,
-          catalog: const RouteCatalog(),
-          playerFactory: (_) {
-            final player = RoutePlayer()..loadGate = loadGate;
-            players.add(player);
-            return player;
-          },
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('详情测试片'));
-    await tester.pumpAndSettle();
-    expect(find.byType(VideoDetailPage), findsOneWidget);
-    expect(find.text('源站原始简介'), findsOneWidget);
-    expect(players, isEmpty);
-    expect(source.parses, 0);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('video-detail-episode-1')),
-    );
-    await tester.runAsync(() async {
-      await tester.tap(find.byKey(const ValueKey('video-detail-episode-1')));
-      await Future<void>.delayed(const Duration(milliseconds: 800));
-    });
-    await tester.pump(const Duration(seconds: 1));
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-    });
-    await tester.pump();
-    expect(
-      find.byType(VideoPlayerPage),
-      findsOneWidget,
-      reason: '不在详情页等待慢媒体加载，播放页接手同一项预备任务',
-    );
-    expect(loadGate.isCompleted, isFalse);
-    expect(entryDirections.first, [
-      'DeviceOrientation.landscapeLeft',
-      'DeviceOrientation.landscapeRight',
-    ]);
-    loadGate.complete();
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    });
-    await tester.pumpAndSettle();
-    expect(players.single.loads, 1, reason: '进入播放页只加载一次媒体');
-    expect(source.parses, 1);
-    expect(players.length, 1);
-    expect(players.single.media?.uri.path, '/e2.mp4');
-    expect(
-      players.single.media?.headers?['Referer'],
-      'https://source.test/watch',
-    );
-    expect(find.byKey(const Key('fullscreen-controls')), findsOneWidget);
-    expect(find.byKey(VideoPlayerPage.controlPanelKey), findsNothing);
-    final instance = tester.state(find.byType(VideoPlayerPage));
-    players.single.information.value = const PlayerStats(
-      width: 1920,
-      height: 1080,
-    );
-    await tester.binding.setSurfaceSize(const Size(900, 400));
-    await tester.pumpAndSettle();
-    expect(
-      identical(instance, tester.state(find.byType(VideoPlayerPage))),
-      isTrue,
-    );
-    expect(players.length, 1);
-    expect(source.parses, 1);
-    await tester.runAsync(() async {
-      await tester.tap(find.byTooltip('退出全屏'));
-      await Future<void>.delayed(const Duration(milliseconds: 800));
-    });
-    await tester.pump(const Duration(seconds: 1));
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-    });
-    await tester.pumpAndSettle();
-    expect(find.byType(VideoDetailPage), findsOneWidget);
-    expect(find.byType(VideoPlayerPage), findsNothing);
-  });
   testWidgets('当前剧集封面显示用户主题色边框，切集后边框跟随', (tester) async {
     const accent = Colors.tealAccent;
     await tester.pumpWidget(
@@ -1238,7 +1496,7 @@ void main() {
           source: source,
           item: const SourceItem(id: 'movie', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -1304,7 +1562,7 @@ void main() {
           ),
           library: library,
           imagePipeline: pipeline,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -1351,7 +1609,7 @@ void main() {
           source: source,
           item: const SourceItem(id: 'movie', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {},
+          onPlay: (_, _, _, _, _) async {},
         ),
       ),
     );
@@ -1406,7 +1664,7 @@ void main() {
             mediaType: 'video',
           ),
           library: library,
-          onPlay: (_, _, _, _) async {
+          onPlay: (_, _, _, _, _) async {
             opened++;
           },
         ),
@@ -1441,7 +1699,7 @@ void main() {
           ),
           item: const SourceItem(id: 'movie', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {
+          onPlay: (_, _, _, _, _) async {
             fail('不应打开播放器');
           },
         ),
@@ -1462,7 +1720,7 @@ void main() {
           source: source,
           item: const SourceItem(id: 'movie', title: '详情测试片'),
           library: library,
-          onPlay: (_, _, _, _) async {
+          onPlay: (_, _, _, _, _) async {
             opened++;
           },
         ),
@@ -1478,12 +1736,15 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(source.parses, 1);
-    await tester.ensureVisible(find.byKey(const Key('video-detail-play')));
+    final retry = find.byKey(const Key('video-detail-play'));
+    await Scrollable.ensureVisible(tester.element(retry), alignment: 0.5);
+    await tester.pumpAndSettle();
     await tester.runAsync(() async {
-      await tester.tap(find.byKey(const Key('video-detail-play')));
+      await tester.tap(retry);
       await Future<void>.delayed(const Duration(milliseconds: 800));
     });
     await tester.pumpAndSettle();
+    expect(source.parses, 2);
     expect(opened, 0);
     expect(find.byType(VideoDetailPage), findsOneWidget);
     expect(find.textContaining('解析失败：'), findsOneWidget);
@@ -1493,5 +1754,60 @@ void main() {
           .onPressed,
       isNotNull,
     );
+  });
+
+  testWidgets('从详情选已下载的一集直接播放本地文件，删除后恢复在线解析', (tester) async {
+    final downloads = VideoDownloadCenter(directory: () async => root);
+    final task = VideoDownloadTask(
+      id: VideoDownloadCenter.identity(source.id, 'movie', 'e2'),
+      sourceId: source.id,
+      itemId: 'movie',
+      chapterId: 'e2',
+      title: '详情测试片',
+      chapterTitle: '第2集',
+      state: 'done',
+      fileName: 'merged.mp4',
+    );
+    await tester.runAsync(() async {
+      await downloads.boot();
+      downloads.tasks.add(task);
+      await Directory(downloads.folder(task)).create();
+      await downloads.localFile(task).writeAsBytes([1, 2, 3]);
+    });
+    source.failParse = true;
+    final opened = <PlayerMedia>[];
+    final chapters = <String>[];
+    await tester.pumpWidget(MaterialApp(home: VideoDetailPage(
+      source: source,
+      item: const SourceItem(id: 'movie', title: '详情测试片', mediaType: 'video'),
+      library: library,
+      downloadCenter: downloads,
+      onPlay: (_, media, target, _, _) async {
+        opened.add(media);
+        chapters.add(target.chapterId);
+      },
+    )));
+    await tester.pumpAndSettle();
+    final episode = find.byKey(const ValueKey('video-detail-episode-1'));
+    await tester.ensureVisible(episode);
+    Future<void> select() async {
+      await tester.runAsync(() async {
+        await tester.tap(episode);
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      });
+      await tester.pumpAndSettle();
+    }
+    await select();
+    expect(source.parses, 0);
+    expect(opened.single.uri, downloads.localFile(task).uri);
+    expect(opened.single.isDownloaded, isTrue);
+    expect(opened.single.headers, anyOf(isNull, isEmpty));
+    await tester.runAsync(() => downloads.localFile(task).delete());
+    source.failParse = false;
+    await select();
+    expect(source.parses, 1);
+    expect(chapters, ['e2', 'e2']);
+    expect(opened.last.uri.host, 'example.test');
+    expect(opened.last.isDownloaded, isFalse);
   });
 }

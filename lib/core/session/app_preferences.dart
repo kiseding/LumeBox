@@ -15,7 +15,7 @@ enum HapticStrength {
 
 class AppPreferences {
   static final instance = AppPreferences();
-  bool haptics = false, backgroundPlayback = true, autoBackup = false;
+  bool haptics = true, backgroundPlayback = true, autoBackup = false;
   static const maxSettingsShortcuts = 4;
   static const defaultSettingsShortcuts = ['appearance', 'sources', 'player'];
   List<String> settingsShortcuts = List.of(defaultSettingsShortcuts);
@@ -44,7 +44,7 @@ class AppPreferences {
                 .take(maxSettingsShortcuts)
                 .toList()
           : List.of(defaultSettingsShortcuts);
-      haptics = data['haptics'] == true;
+      haptics = data['haptics'] != false;
       hapticStrength =
           HapticStrength.values
               .where((value) => value.name == data['hapticStrength'])

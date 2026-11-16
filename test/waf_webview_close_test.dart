@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 import 'package:lume_box/features/source/waf_webview_page.dart';
+import 'package:lume_box/core/session/section.dart';
 
 class _Platform extends WebViewPlatform {
   bool ready = true;
@@ -179,6 +180,60 @@ void main() {
     expect(find.byType(WafWebViewPage), findsNothing);
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('打开验证'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('验证抽屉共用源抽屉外框，滑动关闭仍先确认未完成的验证', (tester) async {
+    platform.ready = false;
+    await open(tester);
+    expect(find.byKey(const ValueKey('browse-right-drawer')), findsOneWidget);
+    await tester.dragFrom(const Offset(50, 24), const Offset(700, 0));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('网页验证尚未完成'), findsOneWidget);
+    await tester.tap(find.text('继续验证'));
+    await tester.pumpAndSettle();
+    expect(find.byType(WafWebViewPage), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('网页验证尚未完成'), findsOneWidget);
+    await tester.tap(find.text('退出验证'));
+    await tester.pumpAndSettle();
+    expect(find.byType(WafWebViewPage), findsNothing);
+    expect(find.text('打开验证'), findsOneWidget);
+  });
+
+  testWidgets('自动验证使用同一抽屉，未通过时关闭返回失败且不写会话', (tester) async {
+    platform.ready = false;
+    bool? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                result = await showWafAutoVerify(
+                  context: context,
+                  section: Section.video,
+                  sourceId: 'fixture',
+                  sourceName: '测试源',
+                  url: 'https://fixture.invalid/',
+                );
+              },
+              child: const Text('自动验证'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('自动验证'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('browse-right-drawer')), findsOneWidget);
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(result, false);
+    expect(find.byType(WafWebViewPage), findsNothing);
+    expect(find.byType(AlertDialog), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

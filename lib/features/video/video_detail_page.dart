@@ -7,6 +7,7 @@ import '../reading/content_detail_router.dart';
 import '../download/download_selection.dart';
 import '../comic/download_center_page.dart';
 import 'video_download_center.dart';
+import 'direct_video_source.dart';
 
 import 'dart:convert';
 import 'dart:math' as math;
@@ -29,7 +30,6 @@ import '../settings/tmdb_settings_page.dart';
 
 import 'dart:ui' as ui;
 
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../shared/widgets/poster_gradient_scaffold.dart';
 import '../../shared/widgets/source_translation.dart';
@@ -45,6 +45,7 @@ import '../media/media_resource_router.dart';
 import 'tmdb_artwork.dart';
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 
@@ -59,7 +60,9 @@ import 'package:flutter/services.dart';
 
 import '../reading/poster_card.dart';
 import 'bangumi_match_sheet.dart';
+import 'playback_quality_preference.dart';
 import 'source_playback.dart';
+import 'video_player_settings.dart';
 import 'source_web_player_page.dart';
 import 'video_play_target.dart';
 import '../../core/cat/cat_web_parse.dart';
@@ -85,6 +88,7 @@ TextTheme _bolderTextTheme(TextTheme base) => base.copyWith(
 );
 
 typedef OpenVideoPlayer = Future<void> Function(
+  ({BuildContext context, DataSource source}) origin,
   PlayerMedia media,
   VideoPlayTarget target,
   List<VideoQuality> qualities,
@@ -100,6 +104,7 @@ class VideoDetailPage extends StatefulWidget {
     this.loadSource,
     this.sourceId,
     this.manager,
+    this.searchManager,
     this.recordHistory = true,
     this.imagePipeline,
     required this.item,
@@ -117,6 +122,7 @@ class VideoDetailPage extends StatefulWidget {
   final Future<DataSource?> Function()? loadSource;
   final String? sourceId;
   final SourceManager? manager;
+  final SourceManager? searchManager;
   final bool recordHistory;
   final SectionImagePipeline? imagePipeline;
   final SourceItem item;
@@ -160,9 +166,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   VideoProgress? lineResume;
   final _episodesKey = GlobalKey();
   final _scroll = ScrollController();
+  final _episodeStrip = ScrollController(keepScrollOffset: false);
 
   Widget? _typedDetail;
   bool loading = true, resolving = false;
+  bool preparingDownloads = false;
   String? error;
   late final pipeline =
       widget.imagePipeline ??
@@ -196,6 +204,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   @override
   void dispose() {
     _scroll.dispose();
+    _episodeStrip.dispose();
     tmdb.dispose();
     tmdbImagePipeline.dispose();
     if (widget.imagePipeline == null) pipeline.dispose();
@@ -211,6 +220,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   Future<void> loadOwned() async {
+    final token = NetworkCancellation.current;
     setState(() {
       loading = true;
       error = null;
@@ -218,6 +228,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     try {
       final source =
           _updatedSource ?? widget.source ?? await widget.loadSource?.call();
+      token?.check();
       if (source == null) throw StateError('源不可用（未启用或脚本加载失败）');
       _source = source;
       pipeline.bindSource(source);
@@ -229,7 +240,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       } catch (_) {
         // Some video sources only implement episodes/content. Metadata is optional.
       }
-      NetworkCancellation.current?.check();
+      token?.check();
       if (!mounted) return;
       final cover = metadata?.cover ?? widget.item.cover;
       if (cover != null) {
@@ -263,6 +274,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         try {
           episodes = await source.chapters(widget.item.id);
         } catch (_) {
+          token?.check();
           if (metadata?.chapters.isNotEmpty != true) rethrow;
           episodes = metadata!.chapters;
         }
@@ -270,6 +282,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           episodes = metadata!.chapters;
         }
       }
+      token?.check();
       if (!mounted) return;
       if (widget.detectContent && direct == null) {
         final type = await detectSourceContent(
@@ -279,6 +292,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           chapters: episodes,
           hint: widget.item.mediaType,
         );
+        token?.check();
         if (!mounted) return;
         if (type != null && type != SourceContentType.video) {
           setState(() {
@@ -316,11 +330,12 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         sourceId: _source?.id ?? widget.sourceId,
       );
       final audioEntry = MediaLibrary.instance.byId(
-        MediaResource.sourceKey(source.section, source.id, widget.item.id),
+        MediaResource.sourceKey(widget.library.section, source.id, widget.item.id),
       );
       String? audioChapterId;
       if (audioEntry?.kind == ResourceKind.audioBook) {
         await AudioBookSettings.instance.load();
+        token?.check();
         if (!mounted) return;
         final session = AudioBookSession.instance;
         final index = session.resource?.id == audioEntry!.id
@@ -344,14 +359,16 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           episodes,
           workTitle: metadata?.title ?? widget.item.title,
         );
-        SourceChapter? chosen;
-        if (matches.length == 1 &&
+        SourceChapter? chosen = episodes
+            .where((chapter) => chapter.id == initialChapter)
+            .firstOrNull;
+        if (chosen == null && matches.length == 1 &&
             request.confident(
               matches.single,
               workTitle: metadata?.title ?? widget.item.title,
             )) {
           chosen = matches.single;
-        } else if (mounted) {
+        } else if (chosen == null && mounted) {
           chosen = await showGlassModalBottomSheet<SourceChapter>(
             context: context,
             showDragHandle: true,
@@ -384,6 +401,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             ),
           );
         }
+        token?.check();
         if (!mounted) return;
         if (chosen != null) {
           transferredChapter = chosen;
@@ -430,8 +448,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         currentLine = line;
         chapters = activeEpisodes;
         selected = index;
-        episodePage = index ~/ 50;
-        compactEpisodeStart = index ~/ 10 * 10;
+        _locateSelectedEpisode();
         loading = false;
       });
       if (resumeNotSelected && mounted) {
@@ -460,7 +477,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   }
 
   Future<void> downloadVideo() async {
-    if (_source == null || chapters.isEmpty || resolving) return;
+    if (_source == null || chapters.isEmpty || resolving || preparingDownloads) return;
     final source = _source!;
     final episodes = List<SourceChapter>.of(chapters);
     final indices = await selectDownloadChapters(
@@ -470,16 +487,52 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       formatHint: '支持直链视频与普通点播 HLS；直播、字节范围 HLS、DRM 和仅网页播放的内容暂不支持下载。',
     );
     if (indices == null || !mounted) return;
-    await (widget.downloadCenter ?? VideoDownloadCenter.instance).enqueue(
-      sourceId: source.id,
-      itemId: widget.item.id,
-      title: widget.item.title,
-      chapters: [for (final i in indices) episodes[i]],
-    );
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('已添加 ${indices.length} 集到下载中心')));
+    final center = widget.downloadCenter ?? VideoDownloadCenter.instance;
+    final item = widget.item;
+    final section = widget.library.section;
+    final captures = <String, VideoContent>{};
+    var failures = 0;
+    setState(() => preparingDownloads = true);
+    try {
+      if (source is DirectVideoSource) {
+        for (final i in indices) {
+          final chapter = episodes[i];
+          try {
+            captures[chapter.id] = await source.downloadContent(item.id, chapter.id);
+          } catch (_) {
+            failures++;
+          }
+        }
+      }
+      final ready = [
+        for (final i in indices)
+          if (source is! DirectVideoSource || captures.containsKey(episodes[i].id)) i,
+      ];
+      if (ready.isNotEmpty) {
+        await center.enqueue(
+          section: section,
+          sourceId: source.id,
+          itemId: item.id,
+          title: item.title,
+          chapters: [for (final i in ready) episodes[i]],
+          chapterIndices: {for (final i in ready) episodes[i].id: i},
+          captures: captures,
+        );
+      }
+      if (!mounted) return;
+      final message = [
+        if (ready.isNotEmpty) '已添加 ${ready.length} 集到下载中心',
+        if (failures > 0) '$failures 集未取得下载地址，请回到网页重新打开对应剧集',
+      ].join('；');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法保存下载任务，请稍后重试')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => preparingDownloads = false);
     }
   }
 
@@ -497,8 +550,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     if (selectedIndex < 0) return;
     setState(() {
       selected = selectedIndex;
-      episodePage = selectedIndex ~/ 50;
-      compactEpisodeStart = selectedIndex ~/ 10 * 10;
+      _locateSelectedEpisode();
     });
   }
 
@@ -511,12 +563,15 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       playbackFailed = false;
       _playFailure = null;
     });
+    final route = ModalRoute.of(context);
     PlayerPrelaunch? prepared;
+    DownloadedVideoPlayback? offline;
     try {
       final chapter = chapters[selected];
       await MediaLibrary.instance.boot();
+      if (!mounted || route?.isCurrent == false) return;
       final known = MediaLibrary.instance.byId(
-        MediaResource.sourceKey(_source!.section, _source!.id, widget.item.id),
+        MediaResource.sourceKey(widget.library.section, _source!.id, widget.item.id),
       );
       if (known?.kind == ResourceKind.audioBook) {
         final entry = await MediaResourceService().source(
@@ -527,7 +582,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           trackInfo: const MediaTrackInfo(known: true, audio: true),
           deferContent: true,
         );
-        if (!mounted) return;
+        if (!mounted || route?.isCurrent == false) return;
         await openMediaResource(
           context,
           entry,
@@ -535,6 +590,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           restartAudio: _restartAudio,
         );
         _restartAudio = false;
+        if (!mounted) return;
         _syncAudioChapter(entry);
         widget.library.refresh();
         return;
@@ -543,9 +599,15 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       if (_source!.section == Section.video) {
         prepared = widget.prelaunch?.call();
       }
+      if (known?.manual != true || known?.kind == ResourceKind.video) {
+        offline = await (widget.downloadCenter ?? VideoDownloadCenter.instance)
+            .playbackIfAvailable(_source!.id, widget.item.id, chapter.id,
+                section: widget.library.section);
+        if (!mounted || route?.isCurrent == false) return;
+      }
       final direct = SourcePlayback.itemAddress(widget.item.id);
       ChapterContent? content;
-      {
+      if (offline == null) {
         try {
           final resolveWatch = Stopwatch()..start();
           content =
@@ -561,13 +623,13 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 );
               });
         } on CatWebParseRequired catch (request) {
-          if (!mounted) return;
+          if (!mounted || route?.isCurrent == false) return;
           if (request.webPlayer) {
             await showSourceWebPlayer(context, request);
             return;
           }
           final parsed = await showCatWebParsePage(context, request);
-          if (parsed == null || !mounted) return;
+          if (parsed == null || !mounted || route?.isCurrent == false) return;
           content = VideoContent(
             url: parsed,
             headers: {...request.headers, 'Referer': request.page.toString()},
@@ -577,12 +639,11 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           content = VideoContent(url: direct);
         }
       }
-      if (!mounted) return;
+      if (!mounted || route?.isCurrent == false) return;
       final saved = MediaLibrary.instance.byId(
-        MediaResource.sourceKey(_source!.section, _source!.id, widget.item.id),
+        MediaResource.sourceKey(widget.library.section, _source!.id, widget.item.id),
       );
       if (content is TextContent || content is ImageContent) {
-        if (!mounted) return;
         setState(
           () => _typedDetail = contentDetailPage(
             type: content is TextContent
@@ -602,30 +663,42 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         );
         return;
       }
+      final qualities = SourcePlayback.contentQualities(content, source: _source!);
+      final quality = qualities.isEmpty
+          ? null
+          : PlaybackQualityPreference.select(
+              qualities,
+              VideoPlayerSettingsStore(widget.library).load(),
+            );
       final address =
+          offline?.uri ??
+          quality?.url ??
           SourcePlayback.contentAddress(content) ??
           direct ??
           MediaResourceService.address(content);
       if (address == null) throw StateError('源未返回有效的播放地址');
-      if (lineResume != null && widget.recordHistory) {
-        final saved = lineResume!;
-        widget.library.saveProgress(
-          VideoProgress(
-            sourceId: _source!.id,
-            section: widget.library.section,
-            itemId: widget.item.id,
-            chapterIndex: selected,
-            chapterId: chapter.id,
-            chapterTitle: chapter.title,
-            updatedAt: DateTime.now(),
-            position: saved.position,
-            duration: saved.duration,
-          ),
+      final headers = quality?.headers ??
+          SourcePlayback.contentHeaders(content, source: _source!);
+      // Start the direction check as soon as the address exists, while the
+      // rest of the entry bookkeeping continues. Entry joins this same probe.
+      if (Platform.isIOS &&
+          content is VideoContent &&
+          !content.audioOnly &&
+          playbackDirectionFromDimensions(content.width, content.height) ==
+              null &&
+          playbackDirectionFromDimensions(
+                widget.item.mediaInfo['width'],
+                widget.item.mediaInfo['height'],
+              ) ==
+              null) {
+        unawaited(
+          inspectPlaybackEntryDirection(
+            PlayerMedia(uri: address, headers: headers),
+          ).catchError((Object _) => null),
         );
-        lineResume = null;
       }
-      // Source-declared audio and recognizable video URLs need no second
-      // native asset load before navigation. Probe only ambiguous addresses.
+      // Known playback kinds skip classification. Direction metadata above is
+      // inspected separately without creating a player or decoder.
       final audioHint =
           content is VideoContent && content.audioOnly ||
           RegExp(
@@ -633,15 +706,19 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             caseSensitive: false,
           ).hasMatch(address.path);
       final videoAddress = RegExp(
-        r'\.(m3u8|mpd|mp4|m4v|mkv|webm|mov|avi|flv|ts)$',
+        r'\.(m3u8|mpd|mp4|m4v|mkv|webm|mov|avi|flv|wmv|ts)$',
         caseSensitive: false,
       ).hasMatch(address.path);
-      final tracks = saved?.manual == true || audioHint || videoAddress
+      final declaredVideo =
+          _source!.section == Section.video && content is VideoContent;
+      final tracks =
+          offline != null || saved?.manual == true || audioHint || videoAddress || declaredVideo
           ? const MediaTrackInfo()
           : await const MediaTrackProbe().inspect(
               address,
-              headers: SourcePlayback.contentHeaders(content, source: _source!),
+              headers: headers,
             );
+      if (!mounted || route?.isCurrent == false) return;
       if ((saved?.manual == true && saved!.kind != ResourceKind.video) ||
           (saved?.manual != true &&
               (tracks.kind == ResourceKind.audioBook ||
@@ -659,7 +736,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                     ? const MediaTrackInfo(known: true, audio: true)
                     : tracks,
               );
-        if (!mounted) return;
+        if (!mounted || route?.isCurrent == false) return;
         await openMediaResource(
           context,
           entry,
@@ -667,21 +744,23 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           restartAudio: _restartAudio,
           initialMedia: ResolvedMedia(
             address,
-            headers: SourcePlayback.contentHeaders(content, source: _source!),
+            headers: headers,
           ),
         );
         _restartAudio = false;
+        if (!mounted) return;
         _syncAudioChapter(entry);
         widget.library.refresh();
         return;
       }
-      if (!mounted) return;
-      final media = PlayerMedia(
+      final title = '${widget.item.title} · ${VideoEpisodeCatalog.labelOf(chapter)}';
+      final media = offline?.media(title) ?? PlayerMedia(
         uri: address,
         previews: content is VideoContent ? content.previews : const [],
-        title: '${widget.item.title} · ${VideoEpisodeCatalog.labelOf(chapter)}',
-        headers: SourcePlayback.contentHeaders(content, source: _source!),
+        title: title,
+        headers: headers,
       );
+      final resume = lineResume;
       final target = VideoPlayTarget(
         sourceId: _source!.id,
         itemId: widget.item.id,
@@ -690,6 +769,8 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         chapterIndex: selected,
         chapterId: chapter.id,
         chapterTitle: VideoEpisodeCatalog.labelOf(chapter),
+        resumePosition:
+            resume?.isFinished == true ? Duration.zero : resume?.position,
       );
       final sourceDirection =
           (content is VideoContent
@@ -711,49 +792,79 @@ class _VideoDetailPageState extends State<VideoDetailPage>
         prelaunch: prepared ?? widget.prelaunch?.call(),
         target: target,
         sourceDirection: sourceDirection,
-        fallbackDirection: portraitEntry ? 'portrait' : 'landscape',
-        stillActive: () => mounted,
+        fallbackDirection: portraitEntry ? 'portrait' : null,
+        stillActive: () => mounted && route?.isCurrent != false,
       );
-      if (!mounted) return;
+      if (!mounted || route?.isCurrent == false) return;
+      if (resume != null &&
+          widget.recordHistory &&
+          widget.library.setting('history.incognito') != 'true') {
+        widget.library.saveProgress(
+          VideoProgress(
+            sourceId: target.sourceId,
+            section: widget.library.section,
+            itemId: target.itemId,
+            chapterIndex: target.chapterIndex,
+            chapterId: target.chapterId,
+            chapterTitle: target.chapterTitle,
+            updatedAt: DateTime.now(),
+            position: resume.position,
+            duration: resume.duration,
+          ),
+        );
+        lineResume = null;
+      }
       final transferred = prepared;
       prepared = null;
+      final beforePlayback = widget.library.videoProgress(
+        widget.item.id,
+        sourceId: _source?.id ?? widget.sourceId,
+      );
       await widget.onPlay(
+        (context: context, source: _source!),
         media,
         target,
-        SourcePlayback.contentQualities(content, source: _source!),
+        qualities,
         transferred,
       );
-      widget.library.refresh();
       if (mounted) {
+        widget.library.refresh();
         final last = widget.library.videoProgress(
           widget.item.id,
           sourceId: _source?.id ?? widget.sourceId,
         );
-        if (last?.chapterId == chapter.id && last!.position > Duration.zero) {
-          widget.library.setSetting(
-            'video.line.work.${jsonEncode([_source!.id, widget.item.id])}',
-            currentLine,
-          );
+        // Leaving before the first progress event (including private playback)
+        // must not make the detail page jump back to an older session's episode.
+        if (last == null ||
+            last.chapterId == beforePlayback?.chapterId &&
+                last.position == beforePlayback?.position &&
+                last.updatedAt == beforePlayback?.updatedAt) {
+          return;
         }
         for (final entry in lines.entries) {
           final index = entry.value.indexWhere(
-            (chapter) => chapter.id == last?.chapterId,
+            (chapter) => chapter.id == last.chapterId,
           );
           if (index >= 0) {
+            if (last.position > Duration.zero) {
+              widget.library.setSetting(
+                'video.line.work.${jsonEncode([_source!.id, widget.item.id])}',
+                entry.key,
+              );
+            }
             setState(() {
+              lineResume = null;
               currentLine = entry.key;
               chapters = entry.value;
               selected = index;
-              episodePage = index ~/ 50;
-              compactEpisodeStart =
-                  (reversed ? chapters.length - 1 - index : index) ~/ 10 * 10;
+              _locateSelectedEpisode();
             });
             break;
           }
         }
       }
     } catch (failure) {
-      if (mounted) {
+      if (mounted && route?.isCurrent != false) {
         setState(() {
           playbackFailed = true;
           _playFailure = failure;
@@ -772,6 +883,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       }
     } finally {
       if (prepared != null) unawaited(prepared.discard());
+      await offline?.close();
       if (mounted) setState(() => resolving = false);
     }
   }
@@ -916,6 +1028,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   Future<void> searchCurrentVideo([String? keyword]) async {
     final source = _source;
     if (source == null) return;
+    final manager = widget.searchManager ?? widget.manager;
     final chapter = chapters.isEmpty ? null : chapters[selected];
     final progress = chapters.isEmpty ? null : episodeProgress(selected);
     final resume = chapter == null
@@ -934,7 +1047,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           section: widget.library.section,
           keyword: keyword ?? detail?.title ?? widget.item.title,
           mode: SearchMode.aggregate,
-          manager: widget.manager,
+          manager: manager,
           pipeline: pipeline,
           onOpenItem: (ExploreSelection selection) async {
             await Navigator.push(
@@ -943,10 +1056,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 builder: (_) => VideoDetailPage(
                   resumeRequest: resume,
                   sourceId: selection.sourceId,
-                  manager: widget.manager,
+                  manager: manager,
                   loadSource: () =>
-                      (widget.manager ??
-                              LumeSources.manager(widget.library.section))
+                      (manager ?? LumeSources.manager(widget.library.section))
                           .open(selection.sourceId),
                   item: selection.item,
                   library: widget.library,
@@ -975,11 +1087,15 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   void setDetailStyle(bool original) {
     widget.library.setSetting(styleSetting, '$original');
-    setState(() => originalStyle = original);
+    setState(() {
+      originalStyle = original;
+      _locateSelectedEpisode();
+    });
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
   Widget detailCornerActions() => VideoGlassSurface(
+    preferNative: true,
     radius: 28,
     child: Row(
       mainAxisSize: MainAxisSize.min,
@@ -988,6 +1104,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   );
 
   Widget detailBackButton() => VideoGlassSurface(
+    preferNative: true,
     radius: 28,
     child: IconButton(
       tooltip: '返回',
@@ -1042,7 +1159,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             color: menuBackground,
             surfaceTintColor: Colors.transparent,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(20),
             ),
             textStyle: TextStyle(
               color: menuForeground,
@@ -1060,6 +1177,9 @@ class _VideoDetailPageState extends State<VideoDetailPage>
           elevation: 0,
           shadowColor: Colors.transparent,
           menuPadding: EdgeInsets.zero,
+          constraints: BoxConstraints.tightFor(
+            width: math.min(252, MediaQuery.sizeOf(context).width - 32),
+          ),
           icon: Icon(
             Icons.more_horiz,
             color: glass
@@ -1098,68 +1218,130 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 setDetailStyle(true);
               case 'compact':
                 setDetailStyle(false);
-              case 'tmdb':
-                showTmdbMatchPicker(context, tmdb);
-              case 'poster':
-                showTmdbPosterPicker(context, tmdb);
               case 'settings':
                 Navigator.of(
                   context,
                 ).push(MaterialPageRoute<void>(builder: (_) => tmdbSettings()));
             }
           },
-          itemBuilder: (_) => videoGlassMenuEntries<String>([
-            const PopupMenuItem(value: 'downloads', child: Text('下载中心')),
-            if (conciseVideoSubtitle(
-                  rawSourceSubtitle,
-                  availableEpisodes: chapters.length,
-                ) !=
-                rawSourceSubtitle)
-              const PopupMenuItem(
-                value: 'resource-info',
-                child: Text('网盘资源详情'),
-              ),
-            const PopupMenuItem(value: 'search', child: Text('保持集数换源')),
-            const PopupMenuItem(
-              value: 'image-info',
-              child: Text('图片信息 / 超分状态'),
-            ),
-            const PopupMenuItem(value: 'bangumi', child: Text('Bangumi 追番')),
-            const PopupMenuDivider(),
-            CheckedPopupMenuItem(
-              value: 'original',
-              checked: originalStyle,
-              child: const Text('大封面版（旧版）'),
-            ),
-            CheckedPopupMenuItem(
-              value: 'compact',
-              checked: !originalStyle,
-              child: const Text('紧凑版（当前版）'),
-            ),
-            const PopupMenuDivider(),
-            PopupMenuItem(
-              value: 'tmdb',
-              enabled: tmdb.settings.configured && !tmdb.loading,
-              child: const Text('重新匹配TMDB'),
-            ),
-            const PopupMenuItem(value: 'settings', child: Text('TMDB 设置与测试')),
-            PopupMenuItem(
-              value: 'poster',
-              enabled: tmdb.metadata?.posters.isNotEmpty == true,
-              child: const Text('选择海报'),
-            ),
-            PopupMenuItem(
-              enabled: false,
-              child: Text(
-                tmdbStatusLabel,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ]),
+          itemBuilder: (_) => videoGlassMenuEntries<String>(
+            detailMoreMenuEntries(),
+            radius: 20,
+            verticalPadding: 4,
+            preferNative: true,
+          ),
         ),
       ),
       const SizedBox(width: 8),
+    ];
+  }
+
+  List<PopupMenuEntry<String>> detailMoreMenuEntries() {
+    PopupMenuItem<String> action(
+      String value,
+      IconData icon,
+      String label, {
+      bool? checked,
+    }) => PopupMenuItem<String>(
+      key: ValueKey('video-detail-menu-$value'),
+      value: value,
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: Semantics(
+        checked: checked,
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: VideoGlassSurface.foreground.withValues(alpha: .72),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: VideoGlassSurface.foreground,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 16,
+              child: checked == true
+                  ? Icon(
+                      Icons.check_rounded,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    )
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+    final rows = <PopupMenuEntry<String>>[
+      action('downloads', Icons.download_outlined, '下载中心'),
+      if (conciseVideoSubtitle(
+            rawSourceSubtitle,
+            availableEpisodes: chapters.length,
+          ) !=
+          rawSourceSubtitle)
+        action('resource-info', Icons.cloud_outlined, '网盘资源详情'),
+      action('search', Icons.swap_horiz_rounded, '保持集数换源'),
+      action('image-info', Icons.image_outlined, '图片信息 / 超分状态'),
+      action('bangumi', Icons.bookmark_border_rounded, 'Bangumi 追番'),
+      action(
+        'original',
+        Icons.panorama_vertical_outlined,
+        '大封面版（旧版）',
+        checked: originalStyle,
+      ),
+      action(
+        'compact',
+        Icons.view_agenda_outlined,
+        '紧凑版（当前版）',
+        checked: !originalStyle,
+      ),
+      action('settings', Icons.settings_outlined, 'TMDB 设置与测试'),
+      PopupMenuItem<String>(
+        enabled: false,
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.info_outline_rounded,
+              size: 16,
+              color: VideoGlassSurface.foreground.withValues(alpha: .5),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                tmdbStatusLabel,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.35,
+                  color: VideoGlassSurface.foreground.withValues(alpha: .6),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
+    return [
+      for (var i = 0; i < rows.length; i++) ...[
+        if (i > 0) const PopupMenuDivider(height: 1),
+        rows[i],
+      ],
     ];
   }
 
@@ -1182,14 +1364,15 @@ class _VideoDetailPageState extends State<VideoDetailPage>
   );
 
   String get tmdbStatusLabel {
-    if (!tmdb.settings.enabled) return 'TMDB 未开启';
-    if (!tmdb.settings.configured) return 'TMDB 未填写 API Key 或 Token';
     if (tmdb.loading) return 'TMDB 正在匹配资料…';
     final data = tmdb.metadata;
     if (data != null) {
       return 'TMDB 已匹配 · 演员 ${data.cast.length}';
     }
-    return tmdb.status ?? 'TMDB 尚未匹配到资料';
+    if (tmdb.status != null) return 'TMDB 加载失败：${tmdb.status}';
+    if (!tmdb.settings.enabled) return 'TMDB 未开启';
+    if (!tmdb.settings.configured) return 'TMDB 未填写 API Key 或 Token';
+    return 'TMDB 尚未匹配到资料';
   }
 
   Widget metadataRow(String rawSubtitle, String title) {
@@ -1239,61 +1422,132 @@ class _VideoDetailPageState extends State<VideoDetailPage>
             ),
           ),
         ),
-        if (!originalStyle && tmdb.metadata != null)
-          IconButton(
-            key: const Key('video-detail-tmdb-status'),
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            padding: const EdgeInsets.all(4),
-            tooltip:
-                'TMDB 已匹配${tmdb.metadata!.cast.isEmpty ? '' : ' · ${tmdb.metadata!.cast.length} 位演员'}',
-            onPressed: () => Navigator.of(context)
-                .push(MaterialPageRoute<void>(builder: (_) => tmdbSettings())),
-            icon: SvgPicture.asset(
-              'assets/branding/tmdb.svg',
-              width: 28 * appearance.logoScale,
-              height: 20 * appearance.logoScale,
-            ),
-          ),
+        if (!originalStyle) tmdbRating(),
       ],
     );
   }
 
+  Widget tmdbActions(Widget child) => PopupMenuButton<String>(
+    key: const Key('video-detail-tmdb-status'),
+    tooltip: '$tmdbStatusLabel；点击管理 TMDB',
+    color: Colors.transparent,
+    surfaceTintColor: Colors.transparent,
+    elevation: 0,
+    shadowColor: Colors.transparent,
+    menuPadding: EdgeInsets.zero,
+    onSelected: (action) {
+      switch (action) {
+        case 'match':
+          if (tmdb.settings.configured) {
+            showTmdbMatchPicker(context, tmdb);
+          }
+        case 'poster':
+          showTmdbPosterPicker(context, tmdb);
+      }
+    },
+    itemBuilder: (_) => videoGlassMenuEntries<String>([
+      PopupMenuItem(
+        key: const Key('video-detail-tmdb-match'),
+        value: 'match',
+        enabled: tmdb.settings.configured && !tmdb.loading,
+        child: const ListTile(
+          leading: Icon(Icons.manage_search_rounded),
+          title: Text('重新匹配TMDB'),
+          contentPadding: EdgeInsets.zero,
+        ),
+      ),
+      PopupMenuItem(
+        key: const Key('video-detail-poster'),
+        value: 'poster',
+        enabled: tmdb.metadata?.posters.isNotEmpty == true,
+        child: const ListTile(
+          leading: Icon(Icons.image_outlined),
+          title: Text('选择海报'),
+          contentPadding: EdgeInsets.zero,
+        ),
+      ),
+    ], preferNative: true),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 44, minHeight: 40),
+      child: child,
+    ),
+  );
+
   Widget tmdbRating() {
     final data = tmdb.metadata;
-    if (data == null) return const SizedBox.shrink();
-    return Tooltip(
-      message: tmdbStatusLabel,
-      child: TextButton(
-        key: const Key('video-detail-tmdb-status'),
-        onPressed: () =>
-            Navigator.of(context)
-                .push(MaterialPageRoute<void>(builder: (_) => tmdbSettings())),
-        style: TextButton.styleFrom(
-          foregroundColor: Colors.white,
-          minimumSize: const Size(44, 40),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        ),
+    final loading = tmdb.loading;
+    final failed = !loading && data == null && tmdb.status != null;
+    final color = originalStyle ? Colors.white : Colors.teal.shade600;
+    return tmdbActions(
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SvgPicture.asset(
-              'assets/branding/tmdb.svg',
-              width: 18 * appearance.logoScale,
-              height: 13 * appearance.logoScale,
-              semanticsLabel: 'TMDB',
-            ),
-            if (data.rating > 0) ...[
-              const SizedBox(width: 5),
+            if (!loading && data != null && data.rating > 0) ...[
               Text(
                 data.rating.toStringAsFixed(1),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
+                  color: color,
                 ),
               ),
+              const SizedBox(width: 5),
             ],
+            Semantics(
+              label: tmdbStatusLabel,
+              child: SizedBox.square(
+                dimension: 28 * appearance.logoScale,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Center(
+                      child: Icon(
+                        Icons.shield_outlined,
+                        key: !loading && !failed && data == null
+                            ? const Key('video-detail-tmdb-idle')
+                            : null,
+                        size: 26 * appearance.logoScale,
+                        color: color,
+                      ),
+                    ),
+                    if (loading || failed || data != null)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 6 * appearance.logoScale,
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(1),
+                            child: loading
+                                ? SizedBox.square(
+                                    key: const Key('video-detail-tmdb-loading'),
+                                    dimension: 12 * appearance.logoScale,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.5,
+                                      color: color,
+                                    ),
+                                  )
+                                : Icon(
+                                    failed
+                                        ? Icons.priority_high_rounded
+                                        : Icons.check_rounded,
+                                    key: Key(
+                                      failed
+                                          ? 'video-detail-tmdb-failed'
+                                          : 'video-detail-tmdb-success',
+                                    ),
+                                    size: 14 * appearance.logoScale,
+                                    color: color,
+                                  ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1426,7 +1680,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                 tooltip: reversed ? '恢复正序' : '倒序排列',
                 onPressed: chapters.isEmpty
                     ? null
-                    : () => setState(() => reversed = !reversed),
+                    : _reverseEpisodeOrder,
                 icon: const Icon(Icons.swap_vert, size: 20),
               ),
               IconButton(
@@ -1502,7 +1756,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Widget episodeStrip(List<int> visible, {bool grid = false}) => LayoutBuilder(
     builder: (context, bounds) {
-      final width = (bounds.maxWidth - 20) / 3;
+      final width = _episodeCoverWidth(bounds.maxWidth);
       final height = width * 9 / 16;
       final labelSize = originalStyle ? 14.0 : 13.0;
       final extent =
@@ -1630,6 +1884,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       return SizedBox(
         height: extent,
         child: ListView.separated(
+          controller: _episodeStrip,
           scrollDirection: Axis.horizontal,
           itemCount: visible.length,
           separatorBuilder: (_, _) => const SizedBox(width: 10),
@@ -1651,12 +1906,12 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   VideoProgress? episodeProgress(int index) {
     final chapter = chapters[index];
+    if (index == selected && lineResume != null) return lineResume;
     return widget.library.videoEpisodeProgress(
-          widget.item.id,
-          chapter.id,
-          sourceId: _source?.id ?? widget.sourceId,
-        ) ??
-        (index == selected ? lineResume : null);
+      widget.item.id,
+      chapter.id,
+      sourceId: _source?.id ?? widget.sourceId,
+    );
   }
 
   String get playLabel {
@@ -1842,9 +2097,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       currentLine = next;
       chapters = nextChapters;
       selected = matched >= 0 ? matched : 0;
-      episodePage = selected ~/ 50;
-      compactEpisodeStart =
-          (reversed ? chapters.length - 1 - selected : selected) ~/ 10 * 10;
+      _locateSelectedEpisode();
     });
     return true;
   }
@@ -1881,8 +2134,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
       if (index != selected) lineResume = null;
       selected = index;
       _restartAudio = true;
-      compactEpisodeStart =
-          (reversed ? chapters.length - 1 - selected : selected) ~/ 10 * 10;
+      _locateSelectedEpisode();
     });
     if (PlayerExperienceStore.current.selectEpisodeOnly) {
       ScaffoldMessenger.of(context)
@@ -1892,12 +2144,48 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     await play();
   }
 
-  void locateEpisodes() {
+  int _displayPosition(int index) => reversed ? chapters.length - 1 - index : index;
+
+  double _episodeCoverWidth(double viewport) => (viewport - 20) / 3;
+
+  String _episodeRange(List<int> order, int start, int count, String separator) {
+    final end = math.min(start + count, order.length) - 1;
+    return '${order[start] + 1}$separator${order[end] + 1} 集';
+  }
+
+  void _reverseEpisodeOrder() {
     setState(() {
-      final position = reversed ? chapters.length - 1 - selected : selected;
-      episodePage = position ~/ 50;
-      compactEpisodeStart = position ~/ 10 * 10;
+      reversed = !reversed;
+      episodePage = 0;
+      compactEpisodeStart = 0;
     });
+    if (_episodeStrip.hasClients) _episodeStrip.jumpTo(0);
+  }
+
+  void _locateSelectedEpisode() {
+    if (chapters.isEmpty) return;
+    final position = _displayPosition(selected);
+    episodePage = position ~/ 50;
+    compactEpisodeStart = position ~/ 10 * 10;
+    if (!originalStyle) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_episodeStrip.hasClients || !originalStyle ||
+          chapters.isEmpty || episodePage != position ~/ 50 ||
+          _displayPosition(selected) != position) {
+        return;
+      }
+      final strip = _episodeStrip.position;
+      final width = _episodeCoverWidth(strip.viewportDimension);
+      final start = (position % 50) * (width + 10);
+      final offset = strip.pixels.clamp(start + width - strip.viewportDimension, start);
+      if (offset != strip.pixels) {
+        _episodeStrip.jumpTo(offset.clamp(0.0, strip.maxScrollExtent));
+      }
+    });
+  }
+
+  void locateEpisodes() {
+    setState(_locateSelectedEpisode);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = _episodesKey.currentContext;
       if (context != null) {
@@ -1990,7 +2278,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
 
   Future<void> showEpisodes() async {
     if (chapters.isEmpty) return;
-    var page = (reversed ? chapters.length - 1 - selected : selected) ~/ 50;
+    var page = _displayPosition(selected) ~/ 50;
     final scroll = ScrollController();
     final activeKey = GlobalKey();
     var listMode = chapters.any(
@@ -2035,9 +2323,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                         tooltip: '定位当前集',
                         icon: const Icon(Icons.my_location),
                         onPressed: () {
-                          final position = reversed
-                              ? chapters.length - 1 - selected
-                              : selected;
+                          final position = _displayPosition(selected);
                           refresh(() => page = position ~/ 50);
                           WidgetsBinding.instance.addPostFrameCallback((
                             _,
@@ -2069,7 +2355,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       IconButton(
                         tooltip: '倒序排列',
                         onPressed: () {
-                          setState(() => reversed = !reversed);
+                          _reverseEpisodeOrder();
                           refresh(() => page = 0);
                         },
                         icon: const Icon(Icons.swap_vert),
@@ -2104,7 +2390,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                     : (_) {
                                         changeLine(line, allowMissing: true);
                                         refresh(() {
-                                          page = 0;
+                                          page = episodePage;
                                         });
                                       },
                               ),
@@ -2125,7 +2411,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                             DropdownMenuItem(
                               value: i,
                               child: Text(
-                                '${i * 50 + 1}—${((i + 1) * 50).clamp(0, filtered.length)} 集',
+                                _episodeRange(filtered, i * 50, 50, '—'),
                               ),
                             ),
                         ],
@@ -2228,12 +2514,14 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                   DropdownMenuItem(
                     value: i,
                     child: Text(
-                      '${i * 50 + 1}—${((i + 1) * 50).clamp(0, chapters.length)} 集',
+                      _episodeRange(order, i * 50, 50, '—'),
                     ),
                   ),
               ],
               onChanged: (v) {
-                if (v != null) setState(() => episodePage = v);
+                if (v == null) return;
+                setState(() => episodePage = v);
+                if (_episodeStrip.hasClients) _episodeStrip.jumpTo(0);
               },
             ),
           ),
@@ -2260,8 +2548,10 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     IconButton(
       key: const Key('video-detail-download'),
       tooltip: '下载视频 / 选集',
-      onPressed: resolving || chapters.isEmpty ? null : downloadVideo,
-      icon: const Icon(Icons.download_outlined, size: 20),
+      onPressed: resolving || preparingDownloads || chapters.isEmpty ? null : downloadVideo,
+      icon: preparingDownloads
+          ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
+          : const Icon(Icons.download_outlined, size: 20),
     ),
   ];
 
@@ -2270,6 +2560,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
     children: [
       Expanded(
         child: VideoGlassSurface(
+          preferNative: true,
           radius: 28,
           child: FilledButton.icon(
             key: const Key('video-detail-play'),
@@ -2460,10 +2751,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       tooltip: reversed ? '恢复正序' : '倒序排列',
                       onPressed: chapters.isEmpty
                           ? null
-                          : () => setState(() {
-                              reversed = !reversed;
-                              compactEpisodeStart = 0;
-                            }),
+                          : _reverseEpisodeOrder,
                       icon: const Icon(Icons.swap_vert, size: 20),
                     ),
                   ],
@@ -2509,7 +2797,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                       key: ValueKey('video-compact-range-$i'),
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       label: Text(
-                        '${i + 1}–${(i + 10).clamp(0, chapters.length)} 集',
+                        _episodeRange(order, i, 10, '–'),
                       ),
                       selected: start == i,
                       showCheckmark: false,
@@ -2774,45 +3062,7 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Center(
-                          child: TextButton(
-                            key: const Key('video-detail-tmdb-status'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.teal.shade600,
-                              minimumSize: const Size(44, 28),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              textStyle: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            onPressed: tmdb.loading
-                                ? null
-                                : () {
-                                    if (!tmdb.settings.configured) {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => tmdbSettings(),
-                                        ),
-                                      );
-                                    } else {
-                                      showTmdbMatchPicker(context, tmdb);
-                                    }
-                                  },
-                            child: Text(
-                              data != null
-                                  ? 'TMDB · 已匹配'
-                                  : tmdb.loading
-                                  ? 'TMDB · 正在匹配…'
-                                  : tmdb.settings.configured
-                                  ? '匹配 TMDB'
-                                  : '配置 TMDB',
-                            ),
-                          ),
-                        ),
+                        Center(child: tmdbRating()),
                         const SizedBox(height: 4),
                         compactPlaybackControls(),
                         if (chapters.isNotEmpty &&
@@ -3062,39 +3312,39 @@ class _VideoDetailPageState extends State<VideoDetailPage>
                                     .replaceAll(RegExp(r'集\s*集'), '集'),
                                 detail?.title ?? widget.item.title,
                               ),
-                              if (tmdb.metadata != null)
-                                Padding(
-                                  padding: EdgeInsets.zero,
-                                  child: Wrap(
-                                    key: const Key(
-                                      'video-detail-genre-rating-row',
-                                    ),
-                                    alignment: WrapAlignment.center,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    spacing: 10,
-                                    children: [
-                                      if (tmdb.metadata!.genres.isNotEmpty)
-                                        Text(
-                                          tmdb.metadata!.genres.join(' · '),
-                                          key: const Key('video-detail-genres'),
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      tmdbRating(),
-                                    ],
+                              Padding(
+                                padding: EdgeInsets.zero,
+                                child: Wrap(
+                                  key: const Key(
+                                    'video-detail-genre-rating-row',
                                   ),
+                                  alignment: WrapAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 10,
+                                  children: [
+                                    if (tmdb.metadata?.genres.isNotEmpty ==
+                                        true)
+                                      Text(
+                                        tmdb.metadata!.genres.join(' · '),
+                                        key: const Key('video-detail-genres'),
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    tmdbRating(),
+                                  ],
                                 ),
+                              ),
                               resumeHint(),
                               SizedBox(height: tmdb.metadata != null ? 0 : 4),
                               Center(
                                 child: FractionallySizedBox(
                                   widthFactor: .82,
                                   child: VideoGlassSurface(
+                                    preferNative: true,
                                     radius: 30,
                                     child: FilledButton.icon(
                                       key: const Key('video-detail-play'),

@@ -14,6 +14,47 @@ import '../player/video_preview.dart';
 import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as html;
 
+/// Legacy lists often omit hasMore. Probe another nonempty page, while callers
+/// stop repeated pages by ID. An explicit end marker always takes precedence.
+bool sourceHasMore(
+  Object? payload, {
+  required int page,
+  required int itemCount,
+}) {
+  if (itemCount == 0) return false;
+  if (payload is Map) {
+    final explicit = payload['hasMore'] ?? payload['has_more'];
+    if (explicit is bool) return explicit;
+    if (explicit == 0 || explicit == '0' || explicit == 'false') return false;
+    if (explicit == 1 || explicit == '1' || explicit == 'true') return true;
+    int? integer(Object? value) =>
+        value is num ? value.toInt() : int.tryParse('$value');
+    final pages = integer(
+      payload['pagecount'] ??
+          payload['pageCount'] ??
+          payload['totalPages'] ??
+          payload['pages'],
+    );
+    final current =
+        integer(
+          payload['page'] ?? payload['pageNo'] ?? payload['currentPage'],
+        ) ??
+        page;
+    if (pages != null && pages > 0) return current < pages;
+    final total = integer(payload['total'] ?? payload['totalCount']);
+    final size = integer(
+      payload['pageSize'] ??
+          payload['pagesize'] ??
+          payload['limit'] ??
+          payload['perPage'],
+    );
+    if (total != null && total > 0 && size != null && size > 0) {
+      return current * size < total;
+    }
+  }
+  return true;
+}
+
 /// 可选能力：**搜索联想词**（图源提供 `suggest` 时用服务端的，没有就用本地历史）。
 ///
 /// 与弹幕能力同一套做法：能力做成接口，图源实现了就用，没实现就降级——
@@ -631,25 +672,8 @@ sealed class ChapterContent {
       case 'audiobook':
       case 'audio-book':
       case 'video':
-        // 宽容口径：多线路脚本可能只给 qualities 不给 url——那就用第一条当默认。
-        final qualities = _qualityList(json['qualities'] ?? json['levels']);
-        final raw = '${json['url'] ?? ''}'.trim();
-        var uri = Uri.tryParse(raw);
-        if ((uri == null || !uri.hasScheme) && qualities.isNotEmpty) {
-          uri = qualities.first.url;
-        }
-        if (uri == null || !uri.hasScheme) {
-          throw FormatException('章节内容的 video.url 非法: $raw');
-        }
-        return VideoContent(
-          url: uri,
-          audioOnly: kind != 'video',
-          headers: _stringMap(json['headers']),
-          qualities: qualities,
-          previews: VideoPreview.parse(json['thumbnails']),
-          width: num.tryParse('${json['width'] ?? ''}'),
-          height: num.tryParse('${json['height'] ?? ''}'),
-        );
+        return VideoContent.fromSource(json, audioOnly: kind != 'video') ??
+            (throw FormatException('章节内容的 video.url 非法: ${json['url'] ?? ''}'));
       default:
         throw FormatException('未知的章节内容 kind: $kind');
     }
@@ -697,12 +721,47 @@ final class VideoContent extends ChapterContent {
   const VideoContent({
     required this.url,
     this.audioOnly = false,
+    this.fallbackQuality,
     this.previews = const [],
     this.headers = const <String, String>{},
     this.qualities = const <VideoQuality>[],
     this.width,
     this.height,
   });
+
+  static VideoContent? fromSource(
+    Map json, {
+    required bool audioOnly,
+    Uri? Function(String) resolveAddress = Uri.tryParse,
+  }) {
+    final qualities = _qualityList(
+      json['qualities'] ?? json['levels'],
+      resolveAddress,
+    );
+    final main = resolveAddress('${json['url'] ?? ''}'.trim());
+    final fallback = main == null || !main.hasScheme
+        ? qualities.firstOrNull
+        : null;
+    final url = fallback?.url ?? main;
+    if (url == null || !url.hasScheme) return null;
+    return VideoContent(
+      url: url,
+      audioOnly: audioOnly,
+      fallbackQuality: fallback,
+      headers: _stringMap(json['headers']),
+      qualities: qualities,
+      previews: VideoPreview.parse(json['thumbnails']),
+      width: num.tryParse('${json['width'] ?? ''}'),
+      height: num.tryParse('${json['height'] ?? ''}'),
+    );
+  }
+
+  // Keep the fallback's private headers separate from headers inherited by other qualities.
+  final VideoQuality? fallbackQuality;
+  Map<String, String> get defaultHeaders {
+    final specific = fallbackQuality?.headers;
+    return specific != null && specific.isNotEmpty ? specific : headers;
+  }
 
   final List<VideoPreview> previews;
   final Uri url;
@@ -797,7 +856,10 @@ class VideoQuality {
 /// - 地址取 `url` / `playUrl` / `src`；
 /// - 条目非法（没有地址）就跳过，不影响其余线路；
 /// - 标签缺失时用 `线路 N` 兜底——**不编造分辨率**（播放器不知道它是不是 1080P）。
-List<VideoQuality> _qualityList(Object? value) {
+List<VideoQuality> _qualityList(
+  Object? value,
+  Uri? Function(String) resolveAddress,
+) {
   if (value is! List) return const <VideoQuality>[];
   final qualities = <VideoQuality>[];
   for (final entry in value) {
@@ -808,7 +870,7 @@ List<VideoQuality> _qualityList(Object? value) {
         _text(entry['src']) ??
         _text(entry['address']);
     if (url == null) continue;
-    final uri = Uri.tryParse(url);
+    final uri = resolveAddress(url);
     if (uri == null || !uri.hasScheme) continue;
     final label =
         _text(entry['label']) ??
@@ -817,12 +879,15 @@ List<VideoQuality> _qualityList(Object? value) {
         _text(entry['title']) ??
         _text(entry['resolution']) ??
         '线路 ${qualities.length + 1}';
+    final height = num.tryParse('${entry['height'] ?? ''}');
     qualities.add(
       VideoQuality(
         label: label,
         url: uri,
         headers: _stringMap(entry['headers']),
-        height: (entry['height'] as num?)?.toInt() ?? 0,
+        height: height != null && height.isFinite && height > 0
+            ? height.toInt()
+            : 0,
       ),
     );
   }

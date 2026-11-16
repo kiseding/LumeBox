@@ -24,6 +24,7 @@ class _Novel extends FakeReadingDataSource {
     cover: cover,
     coverHeaders: const {'Referer': 'https://books.test/'},
     author: '作者',
+    description: '第一排简介\n第二排简介\n第三排简介\n第四排简介',
   );
 }
 
@@ -103,6 +104,15 @@ void main() {
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
+      final description = find.byKey(const ValueKey('novel-description'));
+      expect(tester.widget<Text>(description).maxLines, 2);
+      await tester.tap(find.byKey(const ValueKey('novel-description-toggle')));
+      await tester.pump();
+      expect(tester.widget<Text>(description).maxLines, isNull);
+      expect(find.text('收起简介'), findsOneWidget);
+      await tester.tap(find.text('收起简介'));
+      await tester.pump();
+      expect(tester.widget<Text>(description).maxLines, 2);
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     });

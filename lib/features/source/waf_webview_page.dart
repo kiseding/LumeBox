@@ -1,4 +1,6 @@
 import '../../shared/widgets/native_glass_surfaces.dart';
+import '../../shared/widgets/browse_side_drawer.dart';
+import '../../shared/widgets/drawer_geometry.dart';
 import '../../core/net/lume_net.dart';
 
 import 'package:lume_box/shared/widgets/lume_icon.dart';
@@ -7,6 +9,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show Factory;
+import 'package:flutter/gestures.dart' show EagerGestureRecognizer;
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
@@ -85,7 +89,7 @@ import '../../core/util/lume_log.dart';
 ///
 /// ## 什么时候才读 Cookie
 ///
-/// **只有用户点左上角 ✕ 的那一刻**（手动模式）。中途无论页面跳转多少次都不读
+/// **只有用户主动关闭时**（按钮、返回或抽屉手势，手动模式）。中途无论页面跳转多少次都不读
 /// Cookie、不关窗、不重置 WebView——用户没说「好了」，验证流程就还没结束。
 /// 自动模式（[WafWebViewPage.auto]）例外：轮询到真放行信号后自己收尾关窗。
 class WafWebViewPage extends StatefulWidget {
@@ -103,7 +107,7 @@ class WafWebViewPage extends StatefulWidget {
   /// 自动模式（用户口径 2 / 4）：脚本抛 `NEED_WEBVIEW_VERIFY` 时由应用自己调起。
   /// 这个模式下**不要求用户点关闭**——一拿到会话就自己收尾关窗。
   ///
-  /// 它**不改变窗口尺寸**：小悬浮窗（320×420，右下角）的外框由调用方
+  /// 它**不改变窗口尺寸**：抽屉的外框由调用方
   /// [showWafAutoVerify] 决定，本页只负责里面的内容与流程。
   final bool auto;
   final VoidCallback? onVerified;
@@ -671,106 +675,146 @@ class _WafWebViewPageState extends State<WafWebViewPage> {
     _dismissVerification();
   }
 
+  void _requestClose() {
+    if (_collecting) return;
+    if (widget.auto) {
+      _dismissVerification();
+    } else {
+      unawaited(_closeAndCollect());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            // 顶栏：左上角关闭（用户口径：点左上角 X 关闭）、中间标题、右上角刷新。
-            Container(
-              height: 52,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                color: LumeTheme.surface,
-                border: Border(bottom: BorderSide(color: LumeTheme.hairline)),
-              ),
-              child: Row(
-                children: <Widget>[
-                  IconButton(
-                    tooltip: '关闭',
-                    icon: const LumeIcon(
-                      Icons.close,
-                      slot: 'waf_webview_page.1',
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _requestClose();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          top:
+              context
+                  .dependOnInheritedWidgetOfExactType<BrowseDrawerGeometry>() ==
+              null,
+          child: Column(
+            children: <Widget>[
+              Container(
+                constraints: const BoxConstraints(minHeight: 60),
+                padding: const EdgeInsets.fromLTRB(16, 8, 6, 8),
+                decoration: BoxDecoration(
+                  color: LumeTheme.surface,
+                  border: Border(bottom: BorderSide(color: LumeTheme.hairline)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.verified_user_outlined,
+                      size: 22,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
-                    onPressed: _collecting ? null : _closeAndCollect,
-                  ),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        Text(
-                          _title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: LumeTypography.titleSize,
-                            fontWeight: FontWeight.w600,
-                            color: LumeTheme.textPrimary,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${widget.sourceName} · 网页验证',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                        Text(
-                          // 第二行给出**正在验证哪条地址**（含路径，用户口径：能当场
-                          // 核对），以及唯一的操作动作——过完校验点左上角 ✕。
-                          // 显示路径是有用的：挑战按路径下发，用户看到的与接口一致。
-                          '${_urlLabel(widget.url)} · '
-                          '完成后点左上角 ✕ 关闭（自动取回会话）',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: LumeTypography.captionSize,
-                            color: LumeTheme.muted,
+                          const SizedBox(height: 3),
+                          Text(
+                            '${_urlLabel(widget.url)} · $_title',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: LumeTheme.muted,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: '刷新',
-                    icon: const LumeIcon(
-                      Icons.refresh,
-                      slot: 'waf_webview_page.2',
+                    IconButton(
+                      tooltip: '刷新',
+                      onPressed: _collecting
+                          ? null
+                          : () => controller?.reload(),
+                      icon: const LumeIcon(
+                        Icons.refresh,
+                        slot: 'waf_webview_page.2',
+                      ),
                     ),
-                    onPressed: () => controller?.reload(),
-                  ),
-                ],
+                    IconButton(
+                      tooltip: '关闭',
+                      onPressed: _collecting ? null : _requestClose,
+                      icon: const LumeIcon(
+                        Icons.close,
+                        slot: 'waf_webview_page.1',
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (_progress < 100)
-              LinearProgressIndicator(
-                value: _progress <= 0 ? null : _progress / 100,
-                minHeight: 2,
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    widget.auto ? '请完成网页验证，通过后自动返回' : '完成网页验证后，点右上角关闭并保存会话',
+                    style: TextStyle(fontSize: 12, color: LumeTheme.muted),
+                  ),
+                ),
               ),
-            Expanded(
-              child: controller == null
-                  ? const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    )
-                  : Stack(
-                      children: <Widget>[
-                        Listener(
-                          // 用户碰过页面：记一笔（据此不再自动重开挑战页——他多半
-                          // 正在点那个勾选框，重开等于把他做到一半的操作扔掉）。
-                          onPointerDown: (_) => _pageTouched = true,
-                          child: WebViewWidget(controller: controller),
-                        ),
-                        // **挑战页上永不压卡**：那一下失败多半就是挑战页自己引起的，
-                        // 盖一张不透明的白卡上去，用户看到的正好是「一片白、没有勾
-                        // 选框」（真机反馈那一类里最冤的一条）。
-                        if (shouldCoverWebViewWithError(
-                          error: _loadError,
-                          challengeSeen: _challengeSeen,
-                        ))
-                          _buildLoadError(controller),
-                      ],
-                    ),
-            ),
-            if (_collecting) const LinearProgressIndicator(minHeight: 2),
-          ],
+              if (_progress < 100)
+                LinearProgressIndicator(
+                  value: _progress <= 0 ? null : _progress / 100,
+                  minHeight: 2,
+                ),
+              Expanded(
+                child: controller == null
+                    ? const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      )
+                    : Stack(
+                        children: <Widget>[
+                          Listener(
+                            // 用户碰过页面：记一笔（据此不再自动重开挑战页——他多半
+                            // 正在点那个勾选框，重开等于把他做到一半的操作扔掉）。
+                            onPointerDown: (_) => _pageTouched = true,
+                            child: WebViewWidget(
+                              controller: controller,
+                              // Slider challenges own their horizontal gesture;
+                              // dragging inside the webpage must not move the drawer.
+                              gestureRecognizers: {
+                                Factory(() => EagerGestureRecognizer()),
+                              },
+                            ),
+                          ),
+                          // **挑战页上永不压卡**：那一下失败多半就是挑战页自己引起的，
+                          // 盖一张不透明的白卡上去，用户看到的正好是「一片白、没有勾
+                          // 选框」（真机反馈那一类里最冤的一条）。
+                          if (shouldCoverWebViewWithError(
+                            error: _loadError,
+                            challengeSeen: _challengeSeen,
+                          ))
+                            _buildLoadError(controller),
+                        ],
+                      ),
+              ),
+              if (_collecting) const LinearProgressIndicator(minHeight: 2),
+            ],
+          ),
         ),
       ),
     );
@@ -1081,12 +1125,11 @@ bool shouldCoverWebViewWithError({
 
 /// 打开网页视图并返回取到的 Cookie（宿主据此写进图源会话存储）。
 ///
-/// 手动「网页视图」：**屏幕 2/3 高的悬浮窗**（用户口径第七次）——
-/// - 高度 = 屏幕高 × 2/3，上下各留 1/6 空余：顶部能看到 App 自己的标题栏与
-///   上半屏内容，底部也留出一段（不是贴死屏幕底边的全宽弹层，也不是小悬浮窗）；
+/// 手动「网页视图」与源选择共用抽屉：安全区、顶部圆角、遮罩和横向进出动画一致。
+/// - 关闭动作统一收集会话，未完成时可继续验证或明确退出；
 /// - **只有一层**：手动窗开着时自动验证路径被 [WafAutoVerify] 挡住（见
 ///   `beginManual/endManual`），不会再叠一个小圆角窗；
-/// - 过完校验点左上角 ✕（或等自动收尾）→ Cookie 原样返回给调用方落库；
+/// - 过完校验点右上角 ✕（或等自动收尾）→ Cookie 原样返回给调用方落库；
 /// - 返回 null = 用户直接关掉/没拿到；非空 Map = 至少取到一枚 Cookie。
 Future<Map<String, String>?> showWafWebView({
   required BuildContext context,
@@ -1096,33 +1139,17 @@ Future<Map<String, String>?> showWafWebView({
   String? sourceId,
   String? userAgent,
 }) {
-  final size = MediaQuery.of(context).size;
-  final panelHeight = size.height * 2 / 3;
-  // 上下各留 1/6：上面露出 App 标题栏，下面留出空余区域（都不是贴边）。
-  final gap = (size.height - panelHeight) / 2;
   Map<String, String>? collected;
   String? collectedUserAgent;
-  return showGeneralDialog<Map<String, String>>(
+  return _showWafVerificationDrawer(
     context: context,
-    // 中途不许点空白关掉：用户没点 ✕，验证就还没结束（口径 3）。
-    barrierDismissible: false,
-    barrierLabel: '网页视图',
-    barrierColor: const Color(0x66000000),
-    transitionDuration: const Duration(milliseconds: 160),
-    pageBuilder: (context, _, _) => Padding(
-      padding: EdgeInsets.only(top: gap, bottom: gap),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: WafWebViewPage(
-          url: url,
-          sourceName: sourceName,
-          // 手动验证也要用 App 的 UA：一来 cf_clearance 绑 UA（不带上等于白验），
-          // 二来 WKWebView 默认 UA 不带 Safari 段，CF 会给一张没有勾选框的白页。
-          userAgentOverride: userAgent,
-          onCollected: (cookies) => collected = cookies,
-          onUserAgent: (ua) => collectedUserAgent = ua,
-        ),
-      ),
+    builder: (key) => WafWebViewPage(
+      key: key,
+      url: url,
+      sourceName: sourceName,
+      userAgentOverride: userAgent,
+      onCollected: (cookies) => collected = cookies,
+      onUserAgent: (ua) => collectedUserAgent = ua,
     ),
   ).then((_) {
     if (collected?.isNotEmpty == true && section != null && sourceId != null) {
@@ -1130,6 +1157,19 @@ Future<Map<String, String>?> showWafWebView({
     }
     return collected ?? const <String, String>{};
   });
+}
+
+Future<void> _showWafVerificationDrawer({
+  required BuildContext context,
+  required WafWebViewPage Function(GlobalKey<_WafWebViewPageState>) builder,
+}) async {
+  final key = GlobalKey<_WafWebViewPageState>();
+  await showBrowseSideDrawer<void>(
+    context: context,
+    side: BrowseDrawerSide.right,
+    onDismiss: () => key.currentState?._requestClose(),
+    builder: (_) => builder(key),
+  );
 }
 
 /// WAF 判定与失败文本的桥（页面用它决定要不要显示【网页视图】）。
@@ -1393,8 +1433,7 @@ class _WafOriginDialogState extends State<_WafOriginDialog> {
 /// 预热、首页/分类/筛选页自己拉的那一次）撞上标记时**不会**走到这里，界面上只出现
 /// 错误卡——所以这个函数只管「弹出来之后怎么办」，不需要再判用户意图。
 ///
-/// - **小悬浮窗**：不做全屏页——一个 320×420 的圆角小窗浮在界面上，用户能继续看
-///   当前页面；不需要交互的校验（IP 信誉 / 无感校验）会自己关掉，用户基本无感；
+/// - **统一验证抽屉**：与源选择共用外框，通过后自动返回；关闭或返回可以取消。
 /// - **拿到会话就收尾**：轮询到 `cf_clearance`（`__cf_bm` 只在没见过挑战页时算，
 ///   见 [cookieJarLooksPassed]）就自动收集 Cookie 关窗，不需要用户点任何按钮；
 /// - **Cookie 与 UA 一起存**：验证用哪个 UA，后续 API 请求就得用哪个（CF 会绑定），
@@ -1412,39 +1451,16 @@ Future<bool> showWafAutoVerify({
   Map<String, String>? collected;
   String? userAgent;
   try {
-    await Navigator.of(context, rootNavigator: true).push<void>(
-      PageRouteBuilder<void>(
-        opaque: false,
-        // 可点空白处关掉：万一它冒出来打扰用户（例如手动窗刚关、页面又重拉），
-        // 用户能一键退出——关掉即按「没拿到会话」处理，不会静默当作通过。
-        barrierDismissible: true,
-        barrierColor: const Color(0x33000000),
-        transitionDuration: const Duration(milliseconds: 160),
-        pageBuilder: (context, _, _) => Align(
-          // 小窗落在右下角：不遮内容主体，也不是全屏页。
-          alignment: Alignment.bottomRight,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 12, bottom: 96),
-            child: SizedBox(
-              width: 320,
-              height: 420,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Material(
-                  color: LumeTheme.surface,
-                  child: WafWebViewPage(
-                    url: url,
-                    sourceName: sourceName,
-                    auto: true,
-                    userAgentOverride: userAgentOverride,
-                    onUserAgent: (value) => userAgent = value,
-                    onCollected: (cookies) => collected = cookies,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+    await _showWafVerificationDrawer(
+      context: context,
+      builder: (key) => WafWebViewPage(
+        key: key,
+        url: url,
+        sourceName: sourceName,
+        auto: true,
+        userAgentOverride: userAgentOverride,
+        onUserAgent: (value) => userAgent = value,
+        onCollected: (cookies) => collected = cookies,
       ),
     );
   } catch (error) {

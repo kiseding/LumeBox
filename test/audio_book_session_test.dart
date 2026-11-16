@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lume_box/core/audio_book/audio_book_player.dart';
 import 'package:lume_box/core/audio_book/audio_book_track.dart';
 import 'package:lume_box/core/media/media_library.dart';
+import 'package:lume_box/core/media/media_resource_service.dart';
 import 'package:lume_box/core/media/playback_focus.dart';
 import 'package:lume_box/core/session/section.dart';
 
@@ -70,6 +71,44 @@ void main() {
     await player.close();
     await root.delete(recursive: true);
   });
+  test(
+    'music uses normal speed and does not inherit book sleep settings',
+    () async {
+      settings.speed = 1.75;
+      settings.sleepMinutes = 30;
+      final musicTracks = [
+        AudioBookTrack(
+          id: 'song',
+          album: 'Album',
+          artist: 'Artist',
+          music: true,
+          episode: ResourceEpisode(
+            id: 'song',
+            title: 'Song',
+            url: Uri.parse('https://example.com/song.mp3'),
+          ),
+        ),
+      ];
+      await session.load(
+        MediaResource(
+          id: 'music',
+          title: 'Music',
+          kind: ResourceKind.audioBook,
+          destination: Section.video,
+          episodes: musicTracks.map((t) => t.episode).toList(),
+        ),
+        musicTracks,
+      );
+      expect(player.rate, 1);
+      expect(session.sleepAt, isNull);
+      expect(settings.speed, 1.75);
+      expect(settings.sleepMinutes, 30);
+      expect(player.lastTracks.single.artist, 'Artist');
+      await session.load(resource, tracks);
+      expect(player.rate, 1.75);
+      expect(session.sleepAt, isNotNull);
+    },
+  );
   test('one facade supports queue, seek, speed, pause/resume and persisted progress', () async {
     await session.load(resource, tracks, index: 1);
     await session.play();
@@ -128,6 +167,191 @@ void main() {
       expect(session.position, Duration.zero);
     },
   );
+
+  Future<void> openBookmark() => session.open(
+    resource,
+    tracks,
+    index: 1,
+    initialPosition: const Duration(seconds: 63),
+  );
+
+  test('reopening the current chapter supersedes a queued switch to another book', () async {
+    await session.open(resource, tracks, index: 1);
+    await session.seek(const Duration(seconds: 51));
+    await session.pause();
+    final other = MediaResource(
+      id: 'other',
+      title: '另一本书',
+      kind: ResourceKind.audioBook,
+      destination: Section.video,
+      episodes: resource.episodes,
+    );
+    final switching = session.open(other, tracks);
+    final returning = session.open(resource, tracks, index: 1);
+    await Future.wait([switching, returning]);
+    expect(session.resource?.id, resource.id);
+    expect(session.current, 1);
+    expect(session.position.inSeconds, 51);
+    expect(session.playing, isFalse);
+  });
+
+  test('bookmark starts at its saved time before the first play command', () async {
+    Duration? firstAudiblePosition;
+    player.beforePlay = () async => firstAudiblePosition ??= session.position;
+    await openBookmark();
+    expect(firstAudiblePosition, const Duration(seconds: 63));
+  });
+
+  test('a bookmark interrupted by video focus cannot reclaim playback', () async {
+    final entered = Completer<void>(), resume = Completer<void>();
+    player.beforeLoad = () {
+      if (!entered.isCompleted) entered.complete();
+      return resume.future;
+    };
+    final opening = openBookmark();
+    await entered.future;
+    await PlaybackFocus.acquire('video');
+    resume.complete();
+    await opening;
+    expect(PlaybackFocus.owner, 'video');
+    expect(player.loads, 1);
+  });
+
+  test('退出听书会取消排队中的焦点请求，视频继续持有焦点', () async {
+    final entered = Completer<void>(), finish = Completer<void>();
+    Future<void> releasePrevious() async {
+      entered.complete();
+      await finish.future;
+    }
+    var videoReleases = 0;
+    Future<void> releaseVideo() async { videoReleases++; }
+    addTearDown(() {
+      PlaybackFocus.unregister('previous', releasePrevious);
+      PlaybackFocus.unregister('video', releaseVideo);
+    });
+    await PlaybackFocus.acquire('previous', onRelease: releasePrevious);
+    final video = PlaybackFocus.acquire('video', onRelease: releaseVideo);
+    await entered.future;
+    final opening = openBookmark();
+    await Future<void>.delayed(Duration.zero);
+    await session.release();
+    finish.complete();
+    await video;
+    await opening;
+    expect(videoReleases, 0);
+    expect(PlaybackFocus.owner, 'video');
+    expect(player.loads, 0);
+  });
+
+  test('opening a bookmark in the active chapter keeps a paused player paused', () async {
+    await session.open(resource, tracks, index: 1);
+    await session.pause();
+    await openBookmark();
+    expect(session.position, const Duration(seconds: 63));
+    expect(session.playing, isFalse);
+    expect(player.loads, 1);
+  });
+
+  test('audio settings can retry a temporary storage failure and recover bookmarks', () async {
+    await session.load(resource, tracks, index: 1);
+    await session.seek(const Duration(seconds: 39));
+    await settings.save();
+    var reads = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async {
+            if (++reads == 1) throw PlatformException(code: 'unavailable');
+            return root.path;
+          },
+        );
+    final reopened = AudioBookSettings();
+    await expectLater(reopened.load(), throwsA(isA<PlatformException>()));
+    await reopened.load();
+    expect(reopened.positions[resource.id]?['position'], 39000);
+  });
+
+  for (final (String label, int? index, Duration? at, bool restart, int expectedIndex, int seconds) in [
+    ('自动续听', null, null, false, 2, 73),
+    ('指定章节续听', 2, null, false, 2, 73),
+    ('从头播放', 2, null, true, 2, 0),
+    ('未指定章节时从头播放', null, null, true, 2, 0),
+    ('书签', 1, const Duration(seconds: 19), false, 1, 19),
+  ]) {
+    test('读取进度暂时失败后重试会保留$label的位置', () async {
+      final fresh = AudioBookSettings();
+      final other = AudioBookSession(
+        factory: () => player, settings: fresh, initialize: () async {},
+      );
+      addTearDown(() async {
+        await other.shutdown();
+        other.dispose();
+      });
+      settings.chapterIds[resource.id] = 'c2';
+      settings.positions[resource.id] = {'index': 2, 'position': 73000};
+      await settings.save();
+      var available = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/path_provider'), (_) async {
+          if (!available) throw PlatformException(code: 'unavailable');
+          return root.path;
+        },
+      );
+      await other.open(resource, tracks, index: index, initialPosition: at, restart: restart);
+      expect(other.error, isNotNull);
+      expect(player.loads, 0);
+      available = true;
+      await other.retry();
+      expect(other.error, isNull);
+      expect(other.current, expectedIndex);
+      expect(other.position, Duration(seconds: seconds));
+      expect(other.playing, true);
+    });
+  }
+
+  for (final changed in ['url', 'headers', 'prepared']) {
+    test('reopening a paused chapter refreshes its $changed and keeps the playhead', () async {
+      final service = MediaResourceService();
+      Future<void> reopen(String version) async {
+        final url = Uri.parse('https://example.com/${changed == 'url' ? version : 'track'}.mp3');
+        final episode = ResourceEpisode(
+          id: 'same',
+          title: '第一章',
+          url: url,
+          headers: {'Authorization': changed == 'headers' ? version : 'original'},
+        );
+        final book = MediaResource(
+          id: 'book',
+          title: '听书',
+          kind: ResourceKind.audioBook,
+          destination: Section.video,
+          episodes: [episode],
+        );
+        await session.open(book, service.audioTracks(
+          book,
+          initialIndex: 0,
+          initialMedia: changed == 'prepared'
+              ? ResolvedMedia(url, headers: {'Authorization': version})
+              : null,
+        ));
+      }
+      await reopen('old');
+      await session.seek(const Duration(seconds: 38));
+      await session.pause();
+      await reopen('fresh');
+      final resolved = await player.lastTracks.single.resolve!();
+      if (changed == 'url') {
+        expect(resolved.url.path, '/fresh.mp3');
+      } else {
+        expect(resolved.headers['Authorization'], 'fresh');
+      }
+      expect(session.position.inSeconds, 38);
+      expect(session.playing, isFalse);
+      final loads = player.loads;
+      await reopen('fresh');
+      expect(player.loads, loads);
+    });
+  }
 
   test('failed loading can retry the same chapter and resume time', () async {
     settings.positions[resource.id] = {'index': 1, 'position': 47000};
@@ -216,11 +440,35 @@ void main() {
     session.addListener(() => pageUpdates++);
     session.progress.addListener(() => progressUpdates++);
     for (var n = 1; n < 10; n++) {
-      player.p.add(Duration(milliseconds: n * 100));
+      player.emitPosition(Duration(milliseconds: n * 100));
     }
     expect(progressUpdates, 9);
     expect(pageUpdates, 0);
   });
+
+  for (final positionFirst in [false, true]) {
+    test('自动切章后立即退出会保存新章的时间（先收到${positionFirst ? '进度' : '章节'}）', () async {
+      await session.open(resource, tracks);
+      await session.seek(const Duration(minutes: 4, seconds: 59));
+      player.current = 1;
+      player.nativePosition = const Duration(seconds: 2);
+      player.nativeDuration = const Duration(minutes: 3);
+      if (positionFirst) {
+        player.p.add(player.nativePosition);
+      } else {
+        player.i.add(1);
+      }
+      // The previous chapter's last notification is delivered late.
+      player.p.add(const Duration(minutes: 4, seconds: 59));
+      expect(session.progress.value, (player.nativePosition, player.nativeDuration));
+      await session.release();
+      await settings.save();
+      final reopened = AudioBookSettings();
+      await reopened.load();
+      expect(reopened.chapterIds[resource.id], 'c1');
+      expect(reopened.positions[resource.id]?['position'], 2000);
+    });
+  }
 
   test(
     'chapter IDs survive reordered catalogs and missing chapters start safely',
@@ -265,6 +513,277 @@ void main() {
     expect(session.error, '资源没有可播放的章节');
     expect(session.loading, false);
     expect(player.loads, 0);
+  });
+
+  test('opening an empty book stops the audible previous book and keeps its bookmark', () async {
+    var audible = false;
+    final output = player.playing.listen((value) => audible = value);
+    addTearDown(output.cancel);
+    await session.open(resource, tracks, index: 1);
+    await session.seek(const Duration(seconds: 37));
+    expect(audible, isTrue);
+    await session.open(resource, [], restart: true);
+    expect(session.error, '资源没有可播放的章节');
+    expect(audible, isFalse);
+    expect(settings.positions[resource.id]?['position'], 37000);
+  });
+
+  for (final retry in [false, true]) {
+    test(
+      'pause during pending ${retry ? "retry" : "open"} cancels autoplay',
+      () async {
+        if (retry) {
+          player.failLoads = 1;
+          await session.open(resource, tracks);
+        }
+        final entered = Completer<void>(), release = Completer<void>();
+        player.beforeLoad = () async {
+          entered.complete();
+          await release.future;
+        };
+        final loading = retry
+            ? session.retry()
+            : session.open(resource, tracks);
+        await entered.future;
+        await session.pause();
+        release.complete();
+        await loading;
+        expect(session.loading, isFalse);
+        expect(session.error, isNull);
+        expect(session.playing, isFalse);
+        await session.play();
+        expect(session.playing, isTrue);
+      },
+    );
+  }
+
+  test('a failed seek keeps the last playable resume position', () async {
+    await session.open(resource, tracks, index: 1);
+    await session.seek(const Duration(seconds: 25));
+    player.beforeSeek = () async => throw StateError('seek failed');
+    await session.seek(const Duration(seconds: 80));
+    expect(session.position.inSeconds, 25);
+    expect(settings.positions[resource.id]?['position'], 25000);
+    expect(session.error, isNotNull);
+  });
+
+  for (final selectChapter in [false, true]) {
+    test('手动跳转失败后重新加载会重试所选${selectChapter ? "章节" : "时间"}', () async {
+      await session.open(resource, tracks, index: 1);
+      await session.seek(const Duration(seconds: 25));
+      player.beforeSeek = () async => throw StateError('unavailable');
+      if (selectChapter) {
+        await session.playChapter(2);
+      } else {
+        await session.seek(const Duration(seconds: 80));
+      }
+      expect(settings.chapterIds[resource.id], 'c1');
+      expect(settings.positions[resource.id]?['position'], 25000);
+      player.beforeSeek = null;
+      await session.retry();
+      expect(session.current, selectChapter ? 2 : 1);
+      expect(session.position.inSeconds, selectChapter ? 0 : 80);
+      expect(session.playing, isTrue);
+      expect(session.error, isNull);
+    });
+  }
+
+  test('跳转失败后退出再续听仍使用实际听到的位置', () async {
+    await session.open(resource, tracks, index: 1);
+    await session.seek(const Duration(seconds: 25));
+    player.beforeSeek = () async => throw StateError('unavailable');
+    await session.playChapter(2);
+    await session.release();
+    await session.play();
+    expect(session.current, 1);
+    expect(session.position.inSeconds, 25);
+  });
+
+  for (final lastFails in [false, true]) {
+    test('overlapping audiobook seeks keep the last confirmed position (failure=$lastFails)', () async {
+      await session.open(resource, tracks);
+      await session.seek(const Duration(seconds: 5));
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      var requests = 0;
+      player.beforeSeek = () async {
+        if (++requests == 1) {
+          entered.complete();
+          await release.future;
+        } else if (lastFails) {
+          throw StateError('unavailable');
+        }
+      };
+      final first = session.seek(const Duration(seconds: 15));
+      await entered.future;
+      final last = session.seek(const Duration(seconds: 90));
+      final requested = session.position;
+      release.complete();
+      await Future.wait([first, last]);
+      expect(requested.inSeconds, 90);
+      expect(session.position.inSeconds, lastFails ? 15 : 90);
+      expect(settings.positions[resource.id]?['position'], lastFails ? 15000 : 90000);
+      expect(session.error != null, lastFails);
+    });
+  }
+
+  test('a pending chapter selection respects a later pause', () async {
+    await session.open(resource, tracks);
+    final gate = Completer<void>();
+    player.beforeSeek = () => gate.future;
+    final selecting = session.playChapter(1);
+    await session.pause();
+    gate.complete();
+    await selecting;
+    expect(session.playing, isFalse);
+  });
+
+  test('failed and superseded seeks never become the audiobook resume point', () async {
+    await session.open(resource, tracks);
+    await session.seek(const Duration(seconds: 5));
+    final gate = Completer<void>();
+    var requests = 0;
+    player.beforeSeek = () async {
+      requests++;
+      await gate.future;
+      throw StateError('unavailable');
+    };
+    final first = session.seek(const Duration(seconds: 20));
+    final superseded = session.seek(const Duration(seconds: 40));
+    final last = session.seek(const Duration(seconds: 60));
+    gate.complete();
+    await Future.wait([first, superseded, last]);
+    expect(requests, 2);
+    expect(session.position.inSeconds, 5);
+    expect(settings.positions[resource.id]?['position'], 5000);
+  });
+
+  test('a failed chapter selection keeps the error without replaying the old chapter', () async {
+    await session.load(resource, tracks);
+    player.beforeSeek = () async => throw StateError('chapter unavailable');
+    await session.playChapter(1);
+    await Future<void>.delayed(Duration.zero);
+    expect(session.error, '跳转失败，请重试');
+    expect(player.loads, 1);
+    expect(session.playing, isFalse);
+  });
+
+  test('a failed native chapter change preserves the last confirmed chapter and time', () async {
+    await session.open(resource, tracks, index: 1);
+    await session.seek(const Duration(seconds: 31));
+    player.beforeSeek = () async {
+      player.current = 2;
+      player.i.add(2);
+      player.p.add(Duration.zero);
+      throw StateError('new chapter unavailable');
+    };
+    await session.seek(Duration.zero, index: 2);
+    player.i.add(2);
+    player.p.add(Duration.zero);
+    expect(session.current, 1);
+    expect(session.position.inSeconds, 31);
+    expect(settings.chapterIds[resource.id], 'c1');
+    expect(settings.positions[resource.id]?['position'], 31000);
+    expect(session.error, isNotNull);
+    player.beforeSeek = null;
+    await session.seek(const Duration(seconds: 11));
+    expect(player.current, 1);
+    expect(session.error, isNull);
+    await session.seek(const Duration(seconds: 12), index: 2);
+    expect(session.current, 2);
+    expect(session.error, isNull);
+    expect(settings.chapterIds[resource.id], 'c2');
+  });
+
+  test('overlapping chapter changes persist the successful chapter when the latest fails', () async {
+    await session.open(resource, tracks);
+    final entered = Completer<void>(), release = Completer<void>();
+    var requests = 0;
+    player.beforeSeek = () async {
+      if (++requests == 1) {
+        entered.complete();
+        await release.future;
+      } else {
+        player.i.add(2);
+        throw StateError('unavailable');
+      }
+    };
+    final first = session.seek(const Duration(seconds: 21), index: 1);
+    await entered.future;
+    final last = session.seek(const Duration(seconds: 80), index: 2);
+    release.complete();
+    await Future.wait([first, last]);
+    expect(session.current, 1);
+    expect(session.position.inSeconds, 21);
+    expect(settings.chapterIds[resource.id], 'c1');
+  });
+
+  test('a queued time seek reselects the playable chapter after a failed switch', () async {
+    await session.open(resource, tracks, index: 1);
+    final entered = Completer<void>(), release = Completer<void>();
+    player.beforeSeek = () async {
+      player.beforeSeek = null;
+      player.current = 2;
+      player.i.add(2);
+      entered.complete();
+      await release.future;
+      throw StateError('unavailable');
+    };
+    final failed = session.seek(Duration.zero, index: 2);
+    await entered.future;
+    final retry = session.seek(const Duration(seconds: 17));
+    release.complete();
+    await Future.wait([failed, retry]);
+    expect(player.current, 1);
+    expect(session.current, 1);
+    expect(session.position.inSeconds, 17);
+    expect(session.error, isNull);
+  });
+
+  test('a released session selects and plays the requested chapter', () async {
+    await session.open(resource, tracks);
+    await session.release();
+    await session.playChapter(2);
+    expect(session.playing, isTrue);
+    expect(session.current, 2);
+  });
+
+  for (final forward in [true, false]) {
+    test('released session can skip ${forward ? "forward" : "back"} while remaining paused', () async {
+      await session.open(resource, tracks, index: 1);
+      await session.release();
+      await (forward ? session.next() : session.previous());
+      expect(session.current, forward ? 2 : 0);
+      expect(player.lastTracks, hasLength(3));
+      expect(session.position, Duration.zero);
+      expect(session.playing, isFalse);
+    });
+  }
+
+  test('a late seek failure belongs only to the previous chapter', () async {
+    await session.open(resource, tracks, index: 0);
+    final gate = Completer<void>();
+    player.beforeSeek = () => gate.future;
+    final seeking = session.seek(const Duration(seconds: 30));
+    await session.open(resource, tracks, index: 1);
+    gate.completeError(StateError('old seek interrupted'));
+    await seeking;
+    expect(session.current, 1);
+    expect(session.seeking, isFalse);
+    expect(session.error, isNull);
+    expect(session.position, Duration.zero);
+  });
+
+  test('an interrupted play cannot report an error on the next book', () async {
+    await session.load(resource, tracks);
+    final gate = Completer<void>();
+    player.beforePlay = () => gate.future;
+    final playing = session.play();
+    await session.load(resource, tracks, index: 1);
+    gate.completeError(StateError('old playback interrupted'));
+    await playing;
+    expect(session.current, 1);
+    expect(session.error, isNull);
   });
 
   test('sleep timer stops output and can be cancelled without enabling another library', () async {
@@ -349,12 +868,22 @@ class _AudioPlayer implements AudioBookPlayer {
   final d = StreamController<Duration?>.broadcast(sync: true);
   final b = StreamController<bool>.broadcast(sync: true);
   final i = StreamController<int?>.broadcast(sync: true);
-  final e = StreamController<String>.broadcast(sync: true);
+  final e = StreamController<AudioBookFailure>.broadcast(sync: true);
   List<AudioBookTrack> lastTracks = [];
   int current = 0, releases = 0, loads = 0, failLoads = 0;
   Future<void> Function()? beforeLoad;
+  Future<void> Function()? beforeSeek, beforePlay;
   bool resolveTracks = false;
   double rate = 1;
+  Duration nativePosition = Duration.zero;
+  Duration nativeDuration = const Duration(minutes: 5);
+  @override
+  AudioBookPlayhead get playhead =>
+      (index: current, position: nativePosition, duration: nativeDuration);
+  void emitPosition(Duration value) {
+    nativePosition = value;
+    p.add(value);
+  }
   @override
   Stream<Duration> get position => p.stream;
   @override
@@ -364,7 +893,7 @@ class _AudioPlayer implements AudioBookPlayer {
   @override
   Stream<int?> get index => i.stream;
   @override
-  Stream<String> get errors => e.stream;
+  Stream<AudioBookFailure> get errors => e.stream;
   @override
   Future<void> load(
     List<AudioBookTrack> tracks, {
@@ -381,23 +910,28 @@ class _AudioPlayer implements AudioBookPlayer {
     lastTracks = tracks;
     current = index;
     i.add(index);
-    p.add(position);
-    d.add(const Duration(minutes: 5));
+    emitPosition(position);
+    d.add(nativeDuration);
   }
 
   @override
-  Future<void> play() async => b.add(true);
+  Future<void> play() async {
+    b.add(true);
+    if (beforePlay != null) await beforePlay!();
+  }
+
   @override
   Future<void> pause() async => b.add(false);
   @override
   Future<void> stop() async => b.add(false);
   @override
   Future<void> seek(Duration position, {int? index}) async {
+    if (beforeSeek != null) await beforeSeek!();
     if (index != null) {
       current = index;
       i.add(index);
     }
-    p.add(position);
+    emitPosition(position);
   }
 
   @override

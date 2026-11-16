@@ -19,22 +19,41 @@ class PlaybackFocus {
   static void register(String name, Future<void> Function() release) =>
       _release[name] = release;
   static void unregister(String name, Future<void> Function() release) {
-    if (_release[name] == release) _release.remove(name);
+    if (_release[name] != release) return;
+    _release.remove(name);
+    _playing.remove(name);
   }
 
-  static Future<void> acquire(String name) {
+  static Future<void> acquire(
+    String name, {
+    Future<void> Function()? onRelease,
+    bool Function()? stillWanted,
+  }) {
     final next = (_pending ?? Future<void>.value()).then((_) async {
-      if (_owner == name) return;
-      for (final entry in [..._release.entries]) {
-        if (entry.key != name && entry.key == _owner) await entry.value();
+      if (stillWanted?.call() == false) return;
+      final previousOwner = _owner;
+      final previous = _release[_owner];
+      if (previous != null &&
+          (_owner != name || (onRelease != null && previous != onRelease))) {
+        await previous();
+        _playing.remove(previousOwner);
+        _owner = null;
       }
-      try {
-        await const MethodChannel('lumebox/mediaTracks')
-            .invokeMethod<void>('owner', name);
-      } on MissingPluginException {
-        /* Platform skeletons have no native owner. */
+      if (stillWanted?.call() == false) return;
+      if (_owner != name) {
+        // No player owns playback while the native handoff is outstanding.
+        // In particular, cancellation must not resurrect a released owner.
+        _owner = null;
+        try {
+          await const MethodChannel('lumebox/mediaTracks')
+              .invokeMethod<void>('owner', name);
+        } on MissingPluginException {
+          /* Platform skeletons have no native owner. */
+        }
+        if (stillWanted?.call() == false) return;
+        _owner = name;
       }
-      _owner = name;
+      if (onRelease != null) register(name, onRelease);
     });
     final settled = next.catchError((_) {});
     _pending = settled;

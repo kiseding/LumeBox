@@ -312,14 +312,11 @@ class SettingsPage extends StatelessWidget {
     SettingsEntryCard(
       icon: Icons.play_circle_outline,
       title: '播放器设置',
-      subtitle: '画面、字幕与播放行为',
+      subtitle: '内核、倍速、连播与缓冲',
       searchTargets: {
         for (final entry in const [
           ('playback', '播放与选集'),
-          ('intro', '片头片尾'),
-          ('picture', '画面与显示'),
           ('audio', '声音与字幕'),
-          ('controls', '手势与外观'),
           ('advanced', '内核与网络'),
           ('playback', '播放倍速'),
           ('playback', '后台播放'),
@@ -366,19 +363,9 @@ class SettingsPage extends StatelessWidget {
     const SettingsGroupTitle('源与订阅'),
     const TotalSubscriptionImportEntry(),
     for (final section in [Section.comic, Section.video])
-      ValueListenableBuilder<int>(
-        valueListenable: SourceSubscriptionSync.changeCount(section),
-        builder: (context, count, _) => SettingsEntryCard(
-          icon: Icons.subscriptions_outlined,
-          title: '${section.label}订阅',
-          subtitle: count == 0 ? '添加、选择安装及更新订阅源' : '$count 项新增、更新或移除，点击查看处理',
-          trailing: Badge(
-            isLabelVisible: count > 0,
-            label: Text(count > 99 ? '99+' : '$count'),
-            child: const Icon(Icons.chevron_right),
-          ),
-          onTap: () => _push(context, SourceSubscriptionPage(section: section)),
-        ),
+      _SubscriptionSettingsEntry(
+        section: section,
+        onTap: () => _push(context, SourceSubscriptionPage(section: section)),
       ),
     SettingsEntryCard(
       icon: Icons.pets_outlined,
@@ -582,7 +569,7 @@ class GridTitleStyleRow extends StatelessWidget {
 ///
 /// 平台信息读不到时如实显示「未知」，不猜：这一行的作用就是让用户与排查者
 /// 一眼确认「装的是哪一版」，猜一个数字比空着更糟。
-class _BuildInfoRow extends StatefulWidget {
+class _BuildInfoRow extends StatefulWidget implements SettingsGroupEntry {
   const _BuildInfoRow();
 
   @override
@@ -645,6 +632,34 @@ class _SettingsVersionFooter extends StatefulWidget {
   const _SettingsVersionFooter();
   @override
   State<_SettingsVersionFooter> createState() => _SettingsVersionFooterState();
+}
+
+class _SubscriptionSettingsEntry extends StatelessWidget
+    implements SettingsGroupEntry {
+  const _SubscriptionSettingsEntry({
+    required this.section,
+    required this.onTap,
+  });
+  final Section section;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+    valueListenable: SourceSubscriptionSync.changeCount(section),
+    builder: (context, count, _) => SettingsEntryCard(
+      icon: Icons.subscriptions_outlined,
+      title: '${section.label}订阅',
+      subtitle: count == 0 ? '管理订阅源' : '有订阅更新',
+      trailing: Semantics(
+        label: count > 0 ? '有订阅更新' : '查看订阅',
+        child: Badge(
+          isLabelVisible: count > 0,
+          child: const Icon(Icons.chevron_right),
+        ),
+      ),
+      onTap: onTap,
+    ),
+  );
 }
 
 class _SettingsVersionFooterState extends State<_SettingsVersionFooter> {

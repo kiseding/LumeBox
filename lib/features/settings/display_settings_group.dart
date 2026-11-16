@@ -69,31 +69,39 @@ class DisplaySettingsGroup extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          SettingsEntryCard(
-            icon: Icons.palette_outlined,
-            title: '主题色',
-            subtitle: '色彩预览 · 预设色板 · 自定义颜色',
-            trailingValue: c.settings.accentLabel,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AppearancePalettePage(),
-              ),
-            ),
-          ),
-          SettingsEntryCard(
-            icon: Icons.format_color_fill_outlined,
-            title: '页面底色',
-            subtitle: '浅色与深色底色 · 自定义颜色',
-            trailingValue: c.settings.lightBackgroundArgb != null
-                ? '自定义'
-                : c.settings.background == ThemeBackground.grouped
-                ? '雾白'
-                : '柔灰',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    const AppearancePalettePage(backgroundOnly: true),
-              ),
+          SettingsIconScope(
+            color: SettingsIconScope.of(context)?.color,
+            grouped: true,
+            child: SettingsGroupCard(
+              children: [
+                SettingsEntryCard(
+                  icon: Icons.palette_outlined,
+                  title: '主题色',
+                  subtitle: '色彩预览 · 预设色板 · 自定义颜色',
+                  trailingValue: c.settings.accentLabel,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AppearancePalettePage(),
+                    ),
+                  ),
+                ),
+                SettingsEntryCard(
+                  icon: Icons.format_color_fill_outlined,
+                  title: '页面底色',
+                  subtitle: '浅色与深色底色 · 自定义颜色',
+                  trailingValue: c.settings.lightBackgroundArgb != null
+                      ? '自定义'
+                      : c.settings.background == ThemeBackground.grouped
+                      ? '雾白'
+                      : '柔灰',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          const AppearancePalettePage(backgroundOnly: true),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

@@ -12,6 +12,52 @@ import 'package:lume_box/shared/widgets/glass_card.dart';
 import 'package:lume_box/features/source/total_subscription_import_entry.dart';
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets('嵌套设置入口自动补齐卡片，已分组入口不重复套卡 $brightness', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LumeTheme.build(brightness: brightness),
+          home: SettingsCategoryPage(
+            category: SettingsCategory('外观', '分组与组合入口', Icons.palette, [
+              SettingsEntryCard(
+                icon: Icons.sunny,
+                title: '分组入口甲',
+                onTap: () {},
+              ),
+              SettingsEntryCard(
+                icon: Icons.dark_mode,
+                title: '分组入口乙',
+                onTap: () {},
+              ),
+              Builder(
+                builder: (_) => SettingsEntryCard(
+                  icon: Icons.colorize,
+                  title: '组合入口',
+                  onTap: () {},
+                ),
+              ),
+            ]),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      Finder surface(String text) =>
+          find.ancestor(of: find.text(text), matching: find.byType(GlassCard));
+      expect(surface('分组入口甲'), findsOneWidget);
+      expect(surface('分组入口乙'), findsOneWidget);
+      expect(surface('组合入口'), findsOneWidget);
+      expect(
+        tester.element(surface('分组入口甲')),
+        same(tester.element(surface('分组入口乙'))),
+      );
+      expect(
+        tester.element(surface('组合入口')),
+        isNot(same(tester.element(surface('分组入口甲')))),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('有状态的一键导入与相邻订阅入口同组，点击仍可选择线路', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

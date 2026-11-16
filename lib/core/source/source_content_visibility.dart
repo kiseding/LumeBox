@@ -41,7 +41,8 @@ class SourceContentVisibility extends ChangeNotifier {
   bool sectionVisible(Section section) => groups(section).isNotEmpty;
   bool videoTypeVisible(String type) => switch (type) {
     'all' || 'audio' || 'kazumi' => true,
-    'ordinary' => isVisible('js'),
+    'ordinary' => isVisible('js') && isVisible('movie'),
+    'video' => isVisible('js') && isVisible('video'),
     _ => isVisible(type),
   };
   bool videoRuntimeVisible(SourceDescriptor source) => isVisible(

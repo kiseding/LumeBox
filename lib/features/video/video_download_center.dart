@@ -1,10 +1,14 @@
 import '../../core/experience/content_center.dart';
+import '../../core/cat/cat_data_source.dart';
+import '../../core/cat/cat_service.dart';
 import '../../core/reading/reading.dart';
 import '../../core/experience/offline_policy.dart';
 import '../../core/source/source_runtime_pins.dart';
 import '../../core/media/playback_focus.dart';
 import '../../core/net/lume_net.dart';
 import '../../core/net/lume_http.dart';
+import '../../core/net/http_header_scope.dart';
+import '../../core/net/media_range_response.dart' show mediaContentRange;
 
 import 'dart:async';
 import 'dart:convert';
@@ -16,10 +20,40 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/session/section.dart';
+import '../../core/security/local_cipher.dart';
 import '../../core/source/source.dart';
 import '../../core/util/sensitive_data.dart';
 import 'source_playback.dart';
+import 'direct_video_source.dart';
+import '../../core/player/abstract_player.dart';
+import '../../core/player/playback_diagnostics.dart';
+import '../../core/player/apple_hls_fragments.dart';
+import '../../core/player/hls_ad_filter.dart';
+import '../../core/player/hls_attributes.dart';
+import '../../core/player/hls_variants.dart';
+import '../../core/player/video_disk_cache.dart';
 import 'video_download_merger.dart';
+import 'offline_video_server.dart';
+import 'offline_hls_master.dart';
+import 'merged_video_mp4.dart';
+
+class DownloadedVideoPlayback {
+  DownloadedVideoPlayback(this.uri, [this.server, this._onClose]);
+  final Uri uri;
+  final OfflineVideoServer? server;
+  final Future<void> Function()? _onClose;
+  Future<void>? _closing;
+  PlayerMedia media(String title) =>
+      PlayerMedia(uri: uri, title: title, isDownloaded: true);
+  Future<void> close() => _closing ??= _close();
+  Future<void> _close() async {
+    try {
+      await server?.close();
+    } finally {
+      await _onClose?.call();
+    }
+  }
+}
 
 class VideoDownloadTask {
   VideoDownloadTask({
@@ -29,21 +63,36 @@ class VideoDownloadTask {
     required this.chapterId,
     required this.title,
     required this.chapterTitle,
+    this.section = Section.video,
     this.state = 'paused',
     this.bytes = 0,
     this.totalBytes = 0,
     this.completed = 0,
     this.total = 0,
     this.fileName = '',
+    this.chapterIndex = 0,
+    this.line = '',
     this.error,
+    this.encryptedCapture,
   });
   final String id, sourceId, itemId, chapterId, title, chapterTitle;
+  final Section section;
+  SourceManager get sourceManager => section == Section.cat
+      ? CatAggregateSourceManager(CatService.instance)
+      : LumeSources.manager(section);
+  int chapterIndex;
+  final String line;
   String state, fileName;
   String? error;
+  String? encryptedCapture;
   int bytes, totalBytes, completed, total;
   double bytesPerSecond = 0;
   bool get running => state == 'running' || state == 'merging';
   bool get hasLocalPlaylist => fileName.endsWith('.m3u8');
+  bool get canPlayOffline =>
+      fileName.isNotEmpty &&
+      (state == 'done' ||
+          hasLocalPlaylist && (state == 'paused' || state == 'merge_failed'));
   double? get progress => total > 0
       ? completed / total
       : totalBytes > 0
@@ -51,21 +100,25 @@ class VideoDownloadTask {
       : null;
   Map<String, Object?> toJson() => {
     'id': id,
+    'section': section.id,
     'sourceId': sourceId,
     'itemId': itemId,
     'chapterId': chapterId,
     'title': title,
     'chapterTitle': chapterTitle,
+    'chapterIndex': chapterIndex,
+    if (line.isNotEmpty) 'line': line,
     'state': state,
     'bytes': bytes,
     'totalBytes': totalBytes,
     'completed': completed,
     'total': total,
     'fileName': fileName,
+    if (encryptedCapture != null) 'capture': encryptedCapture,
   };
 }
 
-/// Persistent, page-independent VOD downloads. Credentials and resolved URLs are never serialized.
+/// Page-independent VOD downloads. Web captures use device-bound encryption.
 class VideoDownloadCenter extends ChangeNotifier {
   VideoDownloadCenter({
     this.directory,
@@ -91,20 +144,30 @@ class VideoDownloadCenter extends ChangeNotifier {
 
   final _merger = VideoDownloadMerger();
   final tasks = <VideoDownloadTask>[];
+  final _playlistReaders = <VideoDownloadTask, int>{};
+  final _pendingCleanup = <VideoDownloadTask>{};
   Future<void>? _boot;
   Future<void> _writes = Future.value();
   bool _draining = false;
   HttpClient? _client;
   VideoDownloadTask? _active;
+  Completer<void>? _activeFinished;
   String? storageError;
   String _proxy = '';
   final _speedWatch = Stopwatch();
   int _speedBytes = 0;
   late Directory root;
-  static String identity(String source, String item, String chapter) => sha256
-      .convert(utf8.encode(jsonEncode([source, item, chapter])))
+  static String identity(String source, String item, String chapter,
+      {Section section = Section.video}) => sha256
+      .convert(utf8.encode(jsonEncode([if (section != Section.video) section.id, source, item, chapter])))
       .toString();
-  Future<void> boot() => _boot ??= _restore();
+  bool get needsRestore => _boot == null && storageError != null;
+  Future<void> boot() => _boot ??= _restore().onError((Object error, StackTrace stack) {
+    _boot = null;
+    storageError = '下载任务记录读取失败，已下载文件仍保留';
+    notifyListeners();
+    Error.throwWithStackTrace(error, stack);
+  });
   Future<void> _restore() async {
     root = Directory(
       p.join(
@@ -114,61 +177,246 @@ class VideoDownloadCenter extends ChangeNotifier {
     );
     await root.create(recursive: true);
     final manifest = File(p.join(root.path, 'tasks.json'));
+    String? contents;
     try {
-      if (await manifest.exists()) {
-        for (final value in jsonDecode(await manifest.readAsString()) as List) {
-          final m = value as Map;
-          final id = identity(
-            '${m['sourceId']}',
-            '${m['itemId']}',
-            '${m['chapterId']}',
-          );
-          if (m['id'] != id) continue;
-          final fileName = '${m['fileName'] ?? ''}';
-          if (fileName.isNotEmpty &&
-              (p.isAbsolute(fileName) || p.split(fileName).contains('..'))) {
-            continue;
-          }
-          tasks.add(
-            VideoDownloadTask(
-              id: id,
-              sourceId: '${m['sourceId']}',
-              itemId: '${m['itemId']}',
-              chapterId: '${m['chapterId']}',
-              title: '${m['title']}',
-              chapterTitle: '${m['chapterTitle']}',
-              state: m['state'] == 'done' ? 'done' : 'paused',
-              bytes: (m['bytes'] as num?)?.toInt() ?? 0,
-              totalBytes: (m['totalBytes'] as num?)?.toInt() ?? 0,
-              completed: (m['completed'] as num?)?.toInt() ?? 0,
-              total: (m['total'] as num?)?.toInt() ?? 0,
-              fileName: fileName,
-            ),
-          );
-        }
-      }
-    } catch (_) {
-      storageError = '下载任务记录读取失败，已下载文件仍保留';
+      contents = await manifest.readAsString();
+    } on PathNotFoundException {
+      // A new download library has no manifest yet.
     }
+    final restored = <VideoDownloadTask>[];
+    var migrated = false;
+    if (contents != null) {
+      final rows = jsonDecode(contents);
+      if (rows is! List) throw const FormatException('下载任务清单格式无效');
+      for (final m in rows.whereType<Map>()) {
+        final source = m['sourceId'];
+        var item = m['itemId'];
+        var chapter = m['chapterId'];
+        if (source is! String || item is! String || chapter is! String) {
+          continue;
+        }
+        // Older queues stored Cat site IDs but used the video folder hash.
+        final legacyCat = CatSite.legacyMediaSection(source) != null;
+        final section = m['section'] == null
+            ? (legacyCat ? Section.cat : Section.video)
+            : sectionFromId('${m['section']}');
+        if (section == null) continue;
+        var id = m['id'];
+        final legacyFolder = section == Section.cat && legacyCat &&
+            id == identity(source, item, chapter);
+        if (id is! String ||
+            (!legacyFolder && id != identity(source, item, chapter, section: section))) {
+          continue;
+        }
+        final fileName = m['fileName'] is String ? m['fileName'] as String : '';
+        if (fileName.isNotEmpty &&
+            (fileName.contains('\u0000') ||
+                p.isAbsolute(fileName) ||
+                p.split(fileName).contains('..'))) {
+          continue;
+        }
+        int counter(String key) {
+          final value = m[key];
+          return value is num && value.isFinite && value >= 0
+              ? value.toInt()
+              : 0;
+        }
+
+        var capture = m['capture'] is String ? m['capture'] as String : null;
+        if (section == Section.video && source.startsWith('web-') &&
+            item == 'captured-video' && fileName.isEmpty && capture == null) {
+          final uri = Uri.tryParse(chapter);
+          if (uri != null && ['http', 'https'].contains(uri.scheme) && uri.host.isNotEmpty) {
+            final newItem = DirectVideoSource.captureItemId('', uri);
+            const newChapter = 'web-episode-0';
+            final newId = identity(source, newItem, newChapter);
+            try {
+              final cipher = await LocalCipher.open();
+              capture = cipher.seal(
+                jsonEncode({'url': chapter, 'headers': {}}),
+                context: 'video-download:$newId',
+              );
+              item = newItem;
+              chapter = newChapter;
+              id = newId;
+              migrated = true;
+            } catch (_) {
+              // Keep the existing entry if the device key is unavailable.
+            }
+          }
+        }
+        final task = VideoDownloadTask(
+          id: id,
+          section: section,
+          sourceId: source,
+          itemId: item,
+          chapterId: chapter,
+          title: '${m['title'] ?? item}',
+          chapterTitle: '${m['chapterTitle'] ?? chapter}',
+          chapterIndex: counter('chapterIndex'),
+          line: m['line'] is String ? m['line'] as String : '',
+          state: ['done', 'merge_failed'].contains(m['state'])
+              ? '${m['state']}'
+              : 'paused',
+          bytes: counter('bytes'),
+          totalBytes: counter('totalBytes'),
+          completed: counter('completed'),
+          total: counter('total'),
+          fileName: fileName,
+          encryptedCapture: capture,
+        );
+        if ((fileName.isNotEmpty || task.state != 'paused') &&
+            await checkedLocalFile(task, inspectLegacy: true) == null) {
+          task.fileName = '';
+          task.state = 'paused';
+          task.bytes = task.totalBytes = task.completed = task.total = 0;
+          task.error = '本地视频文件缺失或不完整，可重新下载';
+        }
+        restored.add(task);
+      }
+    }
+    tasks.addAll(restored);
+    storageError = null;
+    if (migrated) await _save();
     notifyListeners();
   }
 
   String folder(VideoDownloadTask task) => p.join(root.path, task.id);
   File localFile(VideoDownloadTask task) =>
       File(p.join(folder(task), task.fileName));
+
+  Future<File?> checkedLocalFile(VideoDownloadTask task, {bool inspectLegacy = false}) async {
+    if (task.fileName.isEmpty) return null;
+    final file = localFile(task);
+    // HLS counts bytes across the package, not just the entry playlist.
+    final expected = task.state == 'done' && !task.hasLocalPlaylist ? task.bytes : 0;
+    final stat = await file.stat();
+    if (stat.type != FileSystemEntityType.file ||
+        stat.size == 0 ||
+        expected > 0 && stat.size != expected) {
+      return null;
+    }
+    // Older downloads could publish a DASH manifest as a progressive movie.
+    if (inspectLegacy && task.fileName.startsWith('media.')) {
+      try {
+        if (await VideoDiskCache.detectFileFormat(file) == '.mpd') return null;
+      } on FileSystemException {
+        return null;
+      }
+    }
+    return file;
+  }
+
+  Future<bool> _hasMergeInputs(VideoDownloadTask task) {
+    final playlist = localFile(task);
+    return OfflineVideoServer.isCompletePlaylist(playlist.parent, p.basename(playlist.path));
+  }
+
+  VideoDownloadTask? _find(Section section, String source, String item, String chapter) =>
+      tasks.where((t) => t.section == section && t.sourceId == source &&
+          t.itemId == item && t.chapterId == chapter).firstOrNull;
+
+  Future<File?> completedFile(
+    String sourceId,
+    String itemId,
+    String chapterId, {
+    Section section = Section.video,
+  }) async {
+    await boot();
+    final task = _find(section, sourceId, itemId, chapterId);
+    if (task == null || !task.canPlayOffline) return null;
+    return checkedLocalFile(task);
+  }
+
+  Future<DownloadedVideoPlayback?> completedPlayback(
+    String sourceId,
+    String itemId,
+    String chapterId, {
+    Section section = Section.video,
+  }) async {
+    await boot();
+    final task = _find(section, sourceId, itemId, chapterId);
+    if (task == null ||
+        !(task.canPlayOffline || task.hasLocalPlaylist && task.state == 'merging')) {
+      return null;
+    }
+    if (!task.hasLocalPlaylist) {
+      final file = await checkedLocalFile(task);
+      return file == null ? null : DownloadedVideoPlayback(file.uri);
+    }
+    // Retain the input before awaiting I/O: the merger can publish its MP4
+    // and start cleaning the old playlist while the loopback server binds.
+    _playlistReaders.update(task, (n) => n + 1, ifAbsent: () => 1);
+    var opened = false;
+    try {
+      final file = await checkedLocalFile(task);
+      if (file == null) return null;
+      final server = await OfflineVideoServer.open(file.parent);
+      opened = true;
+      return DownloadedVideoPlayback(
+        server.uri.resolve(Uri.encodeComponent(p.basename(file.path))),
+        server,
+        () => _releasePlaylist(task),
+      );
+    } finally {
+      if (!opened) await _releasePlaylist(task);
+    }
+  }
+
+  Future<void> _releasePlaylist(VideoDownloadTask task) async {
+    final remaining = _playlistReaders[task]! - 1;
+    if (remaining > 0) {
+      _playlistReaders[task] = remaining;
+      return;
+    }
+    _playlistReaders.remove(task);
+    if (_pendingCleanup.remove(task) && tasks.contains(task) && task.fileName == 'merged.mp4') {
+      await _cleanMergedInputs(task);
+    }
+  }
+
+  /// Online-capable entry points may continue with the source on storage errors.
+  Future<DownloadedVideoPlayback?> playbackIfAvailable(
+    String sourceId,
+    String itemId,
+    String chapterId, {
+    Section section = Section.video,
+  }) async {
+    try {
+      return await completedPlayback(sourceId, itemId, chapterId, section: section);
+    } catch (_) {
+      PlaybackDiagnostics.record('offline-lookup-failed', source: sourceId);
+      return null;
+    }
+  }
+
   Future<void> enqueue({
+    Section section = Section.video,
     required String sourceId,
     required String itemId,
     required String title,
     required List<SourceChapter> chapters,
+    Map<String, int> chapterIndices = const {},
+    Map<String, VideoContent> captures = const {},
   }) async {
     await boot();
+    final cipher = captures.isEmpty ? null : await LocalCipher.open();
     for (final chapter in chapters) {
-      final id = identity(sourceId, itemId, chapter.id);
-      final existing = tasks.where((t) => t.id == id).firstOrNull;
+      final id = identity(sourceId, itemId, chapter.id, section: section);
+      final capture = captures[chapter.id];
+      final encrypted = capture == null ? null : cipher!.seal(
+        jsonEncode({'url': capture.url.toString(), 'headers': capture.headers}),
+        context: 'video-download:$id',
+      );
+      final existing = _find(section, sourceId, itemId, chapter.id);
       if (existing != null) {
-        if (!existing.running &&
-            (existing.state != 'done' || !await localFile(existing).exists())) {
+        if (encrypted != null) existing.encryptedCapture = encrypted;
+        existing.chapterIndex = chapterIndices[chapter.id] ?? existing.chapterIndex;
+        final needsDownload = existing.state != 'done' ||
+            (existing.hasLocalPlaylist
+                ? !await _hasMergeInputs(existing)
+                : await checkedLocalFile(existing) == null);
+        if (!existing.running && needsDownload && tasks.contains(existing)) {
           existing.state = 'queued';
         }
         continue;
@@ -176,11 +424,15 @@ class VideoDownloadCenter extends ChangeNotifier {
       tasks.add(
         VideoDownloadTask(
           id: id,
+          encryptedCapture: encrypted,
+          section: section,
           sourceId: sourceId,
           itemId: itemId,
           chapterId: chapter.id,
           title: title,
           chapterTitle: chapter.title,
+          chapterIndex: chapterIndices[chapter.id] ?? 0,
+          line: chapter.line,
           state: 'queued',
         ),
       );
@@ -237,10 +489,10 @@ class VideoDownloadCenter extends ChangeNotifier {
   Future<int> pruneWatched() async {
     await boot();
     if (!ContentCenter.instance.enabled('cleanupWatched')) return 0;
-    final library = await ReadingLibrary.open(Section.video);
     var removed = 0;
     for (final task in List<VideoDownloadTask>.of(tasks)) {
       if (task.state != 'done' || identical(_active, task)) continue;
+      final library = await ReadingLibrary.open(task.section);
       final progress = library.videoEpisodeProgress(
         task.itemId,
         task.chapterId,
@@ -262,6 +514,7 @@ class VideoDownloadCenter extends ChangeNotifier {
   Future<void> _policyCheckpoint(VideoDownloadTask task) async {
     _check(task);
     final reason = await OfflinePolicy.blocked();
+    _check(task);
     if (reason != null) throw OfflinePolicyPaused(reason);
   }
 
@@ -273,7 +526,11 @@ class VideoDownloadCenter extends ChangeNotifier {
       while (true) {
         final task = tasks.where((t) => t.state == 'queued').firstOrNull;
         if (task == null) break;
-        final blocked = await OfflinePolicy.blocked();
+        final localMerge = task.hasLocalPlaylist &&
+            (await _hasMergeInputs(task) || await isMergedVideoMp4(File(p.join(folder(task), 'merged.mp4'))));
+        final blocked = await OfflinePolicy.blocked(needsNetwork: !localMerge);
+        if (task.state != 'queued') continue;
+        if (!localMerge) task.fileName = '';
         if (blocked != null) {
           task.state = 'paused';
           task.error = blocked;
@@ -282,6 +539,7 @@ class VideoDownloadCenter extends ChangeNotifier {
           continue;
         }
         _active = task;
+        final finished = _activeFinished = Completer<void>();
         task.state = 'running';
         task.error = null;
         task.completed = 0;
@@ -292,14 +550,16 @@ class VideoDownloadCenter extends ChangeNotifier {
         await _save();
         notifyListeners();
         final releaseRuntime = SourceRuntimePins.retain(
-          Section.video,
+          task.section,
           task.sourceId,
         );
         try {
-          if (task.hasLocalPlaylist && await localFile(task).exists()) {
+          _check(task);
+          if (localMerge) {
             await _mergeDownloaded(task);
             continue;
           }
+          _check(task);
           _proxy = LumeNet.settings.proxy;
           final content = await (resolve?.call(task) ?? _resolve(task)).timeout(
             const Duration(seconds: 45),
@@ -346,9 +606,8 @@ class VideoDownloadCenter extends ChangeNotifier {
             ..reset()
             ..start();
           _speedBytes = 0;
-          final blockedNow = await OfflinePolicy.blocked();
-          if (blockedNow != null) throw OfflinePolicyPaused(blockedNow);
-          await _download(task, uri, content.headers);
+          await _policyCheckpoint(task);
+          await _download(task, uri, _requestHeaders(content.headers));
           _check(task);
           if (task.hasLocalPlaylist) {
             await _save();
@@ -370,8 +629,10 @@ class VideoDownloadCenter extends ChangeNotifier {
           _client?.close(force: true);
           _client = null;
           _active = null;
+          _activeFinished = null;
           task.bytesPerSecond = 0;
           await _save();
+          finished.complete();
           notifyListeners();
         }
       }
@@ -381,11 +642,22 @@ class VideoDownloadCenter extends ChangeNotifier {
   }
 
   Future<VideoContent> _resolve(VideoDownloadTask task) async {
-    final source = await LumeSources.manager(Section.video).open(task.sourceId);
+    final capture = task.encryptedCapture;
+    if (capture != null) {
+      if (!capture.startsWith(LocalCipher.prefix)) {
+        throw const FormatException('网页下载信息损坏，请回到网页重新添加');
+      }
+      final cipher = await LocalCipher.open();
+      final data = jsonDecode(cipher.reveal(capture, context: 'video-download:${task.id}')) as Map;
+      return VideoContent(
+        url: Uri.parse(data['url'] as String),
+        headers: Map<String, String>.from(data['headers'] as Map),
+      );
+    }
+    final manager = task.sourceManager;
+    final source = await manager.open(task.sourceId);
     if (source == null) throw StateError('源不可用，请恢复对应源后继续');
-    final descriptor = (await LumeSources.manager(
-      Section.video,
-    ).list()).where((d) => d.id == task.sourceId).firstOrNull;
+    final descriptor = (await manager.list()).where((d) => d.id == task.sourceId).firstOrNull;
     if (descriptor != null) {
       _proxy = descriptor.network.mergedWith(LumeNet.settings).proxy;
     }
@@ -405,6 +677,7 @@ class VideoDownloadCenter extends ChangeNotifier {
   }
 
   Future<void> _mergeDownloaded(VideoDownloadTask task) async {
+    _check(task);
     task.state = 'merging';
     task.bytesPerSecond = 0;
     await _save();
@@ -414,31 +687,28 @@ class VideoDownloadCenter extends ChangeNotifier {
     final output = File(p.join(dir.path, 'merged.mp4'));
     try {
       // A crash after atomic rename but before manifest update can reuse the result.
-      if (!await output.exists()) {
+      if (!await isMergedVideoMp4(output)) {
         if (await part.exists()) await part.delete();
+        await flattenOfflineHlsMaster(File(p.join(dir.path, 'index.m3u8')));
         _check(task);
         await (merge ?? _merger.merge)(dir, part, task.id);
         _check(task);
-        if (!await _isMp4(part)) throw StateError('合并未生成有效的 MP4 文件');
+        if (!await isMergedVideoMp4(part)) throw StateError('合并未生成有效的 MP4 文件');
         await part.rename(output.path);
-      } else if (!await _isMp4(output)) {
-        throw StateError('已有合并文件不完整，请删除该文件后重试');
       }
+      final length = await output.length();
       _check(task);
       task.fileName = 'merged.mp4';
-      task.bytes = task.totalBytes = await output.length();
+      task.bytes = task.totalBytes = length;
       task.completed = task.total = 0;
       task.state = 'done';
       await _save();
       // Persist the committed MP4 before removing any original media.
       if (storageError == null) {
-        await for (final entry in dir.list(followLinks: false)) {
-          if (p.equals(entry.path, output.path)) continue;
-          try {
-            await entry.delete(recursive: true);
-          } on FileSystemException {
-            task.error = 'MP4 已合并，部分临时文件未能清理';
-          }
+        if (_playlistReaders.containsKey(task)) {
+          _pendingCleanup.add(task);
+        } else {
+          await _cleanMergedInputs(task);
         }
       }
     } finally {
@@ -446,22 +716,45 @@ class VideoDownloadCenter extends ChangeNotifier {
     }
   }
 
-  static Future<bool> _isMp4(File file) async {
-    if (!await file.exists() || await file.length() < 16) return false;
-    final header = await file.open();
+  Future<void> _cleanMergedInputs(VideoDownloadTask task) async {
+    final output = File(p.join(folder(task), 'merged.mp4'));
     try {
-      final bytes = await header.read(12);
-      return ascii.decode(bytes.sublist(4, 8), allowInvalid: true) == 'ftyp';
-    } finally {
-      await header.close();
+      if (!await output.exists()) return;
+      await for (final entry in output.parent.list(followLinks: false)) {
+        if (p.equals(entry.path, output.path)) continue;
+        try {
+          await entry.delete(recursive: true);
+        } on FileSystemException {
+          task.error = 'MP4 已合并，部分临时文件未能清理';
+        }
+      }
+    } on FileSystemException {
+      task.error = 'MP4 已合并，部分临时文件未能清理';
     }
   }
 
-  Future<HttpClientResponse> _open(
+  Map<String, String> _requestHeaders(Map<String, String> headers) {
+    final result = {
+      for (final e in headers.entries)
+        if (!isMediaTransportHeader(e.key)) e.key.toLowerCase(): e.value,
+    };
+    result.putIfAbsent('user-agent', () => LumeNet.settings.userAgent.isNotEmpty
+        ? LumeNet.settings.userAgent : LumeHttp.defaultUserAgent);
+    result['accept-encoding'] = 'identity';
+    return result;
+  }
+
+  String _headerHash(Map<String, String> headers) {
+    final entries = headers.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return sha256.convert(utf8.encode(jsonEncode(Map.fromEntries(entries)))).toString();
+  }
+
+  Future<(HttpClientResponse, Uri)> _open(
     VideoDownloadTask task,
     Uri uri,
     Uri origin,
-    Map<String, String> headers, {
+    Map<String, String> scopedHeaders, {
     Map<String, String> extra = const {},
   }) async {
     for (var redirects = 0; redirects < 6; redirects++) {
@@ -471,40 +764,229 @@ class VideoDownloadCenter extends ChangeNotifier {
       }
       final req = await _client!.getUrl(uri);
       req.followRedirects = false;
-      for (final e in headers.entries) {
-        if (uri.origin != origin.origin &&
-            [
-              'cookie',
-              'authorization',
-              'proxy-authorization',
-            ].contains(e.key.toLowerCase())) {
-          continue;
-        }
+      // Each fetch owns its headers. Range continuations and child manifests
+      // inherit any restrictions introduced by a redirect in this branch.
+      if (uri.origin != origin.origin) {
+        scopedHeaders.removeWhere((name, _) => isOriginBoundHttpHeader(name));
+      }
+      for (final e in scopedHeaders.entries) {
         req.headers.set(e.key, e.value);
       }
-      if (!headers.keys.any((key) => key.toLowerCase() == 'user-agent')) {
-        req.headers.set(
-          'User-Agent',
-          LumeNet.settings.userAgent.isNotEmpty
-              ? LumeNet.settings.userAgent
-              : LumeHttp.defaultUserAgent,
-        );
-      }
-      req.headers.set('Accept-Encoding', 'identity');
       for (final e in extra.entries) {
         req.headers.set(e.key, e.value);
       }
       final response = await req.close().timeout(const Duration(seconds: 30));
       if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
         final location = response.headers.value('location');
-        await response.drain<void>();
+        await response.listen(null).cancel();
         if (location == null) throw StateError('下载重定向缺少地址');
         uri = uri.resolve(location);
         continue;
       }
-      return response;
+      return (response, uri);
     }
     throw StateError('下载重定向过多');
+  }
+
+  Future<(HttpClientResponse, Uri)> _openFromStart(
+    VideoDownloadTask task, Uri uri, Uri origin, Map<String, String> headers,
+  ) async {
+    final (response, finalUri) = await _open(task, uri, origin, headers);
+    if (!const [400, 403, 405, 416].contains(response.statusCode)) return (response, finalUri);
+    await response.listen(null).cancel();
+    return _open(task, finalUri, origin, headers, extra: const {'Range': 'bytes=0-'});
+  }
+
+  Stream<List<int>> _downloadBody(
+    VideoDownloadTask task,
+    Uri uri,
+    Uri origin,
+    Map<String, String> headers,
+    HttpClientResponse response,
+    int offset, {
+    int? expectedLength,
+    String? expectedValidator,
+    String? expectedDate,
+    void Function(String, String?)? onValidator,
+    void Function(int)? onLength,
+  }) {
+    final encoding = _encoding(response);
+    final wire = _wireBody(
+      task,
+      uri,
+      origin,
+      headers,
+      response,
+      offset,
+      expectedLength: expectedLength,
+      expectedValidator: expectedValidator,
+      expectedDate: expectedDate,
+      onValidator: onValidator,
+      onLength: encoding == 'identity' ? onLength : null,
+    );
+    if (encoding == 'identity') return wire;
+    if (offset != 0) throw StateError('压缩响应无法从中间解码');
+    onLength?.call(0);
+    return switch (encoding) {
+      'gzip' => wire.transform(gzip.decoder),
+      'deflate' => wire.transform(zlib.decoder),
+      _ => throw StateError('不支持的下载内容编码：$encoding'),
+    };
+  }
+
+  String _encoding(HttpClientResponse response) =>
+      response.headers.value('content-encoding')?.trim().toLowerCase() ??
+      'identity';
+
+  String? _validator(HttpClientResponse response) =>
+      response.headers.value('etag') ?? response.headers.value('last-modified');
+
+  // Weak ETags can identify byte-different encodings of the same content.
+  // Compare them for changes, but never use them as an If-Range precondition.
+  String? _strongTag(Object? validator) =>
+      validator is String && validator.startsWith('"') && validator.endsWith('"')
+          ? validator
+          : null;
+
+  String? _ifRange(Object? validator, Object? responseDate) {
+    final tag = _strongTag(validator);
+    if (tag != null) return tag;
+    if (validator is! String || validator.startsWith('W/') || responseDate is! String) {
+      return null;
+    }
+    try {
+      // Allow clock skew when deciding whether the last-modified second is
+      // distinguishable from the response time (RFC 9110 section 8.8.2.2).
+      final age = HttpDate.parse(responseDate).difference(HttpDate.parse(validator));
+      return age >= const Duration(minutes: 1) ? validator : null;
+    } on HttpException {
+      return null;
+    }
+  }
+
+  String _addressHash(Uri uri) =>
+      sha256.convert(utf8.encode(uri.removeFragment().toString())).toString();
+
+  bool _sameStrongTag(Object? previous, HttpClientResponse response) =>
+      _strongTag(previous) != null &&
+      previous == response.headers.value('etag');
+
+  // Byte ranges and validators refer to the encoded HTTP representation.
+  Stream<List<int>> _wireBody(
+    VideoDownloadTask task,
+    Uri uri,
+    Uri origin,
+    Map<String, String> headers,
+    HttpClientResponse response,
+    int offset, {
+    int? expectedLength,
+    String? expectedValidator,
+    String? expectedDate,
+    void Function(String, String?)? onValidator,
+    void Function(int)? onLength,
+  }) async* {
+    if (response.statusCode == 200) {
+      onLength?.call(response.contentLength < 0 ? 0 : response.contentLength);
+      yield* response.timeout(const Duration(seconds: 45));
+      return;
+    }
+    var validator = expectedValidator ?? _validator(response);
+    var validatorDate = expectedValidator == null
+        ? response.headers.value('date')
+        : expectedDate;
+    final encoding = _encoding(response);
+    var total = expectedLength;
+    while (true) {
+      final nextValidator = _validator(response);
+      if (validator != null &&
+          nextValidator != null &&
+          nextValidator != validator) {
+        await response.listen(null).cancel();
+        throw StateError('下载中途文件已更换，请重试');
+      }
+      if (response.statusCode == 416 &&
+          response.headers.value('content-range') == 'bytes */$offset' &&
+          (total == null || total == offset)) {
+        await response.listen(null).cancel();
+        onLength?.call(offset);
+        return;
+      }
+      if (response.statusCode != 206) throw StateError('服务器未继续返回分段内容，请重试');
+      if (_encoding(response) != encoding) throw StateError('下载中途内容编码发生变化');
+      final range = mediaContentRange.firstMatch(response.headers.value('content-range') ?? '');
+      final start = int.tryParse(range?[1] ?? '');
+      final end = int.tryParse(range?[2] ?? '');
+      final length = int.tryParse(range?[3] ?? '');
+      if (start != offset ||
+          end == null ||
+          end < offset ||
+          (range?[3] != '*' && length == null) ||
+          (length != null && total != null && total != length)) {
+        throw StateError('服务器续传范围不匹配，请重试');
+      }
+      total ??= length;
+      if ((total != null && end >= total) ||
+          (response.contentLength >= 0 &&
+              response.contentLength != end - offset + 1)) {
+        throw StateError('服务器返回了无效的分段长度');
+      }
+      if (validator == null && nextValidator != null) {
+        validator = nextValidator;
+        validatorDate = response.headers.value('date');
+        onValidator?.call(nextValidator, validatorDate);
+      }
+      onLength?.call(total ?? 0);
+      await for (final chunk in response.timeout(const Duration(seconds: 45))) {
+        _check(task);
+        if (chunk.length > end - offset + 1) throw StateError('分段响应超过声明长度');
+        offset += chunk.length;
+        yield chunk;
+      }
+      if (offset - 1 != end) throw StateError('文件分段尚未下载完整');
+      if (offset == total) return;
+      await _policyCheckpoint(task);
+      final next = await _open(
+        task,
+        uri,
+        origin,
+        headers,
+        extra: {'Range': 'bytes=$offset-', 'If-Range': ?_ifRange(validator, validatorDate)},
+      );
+      final previousUri = uri;
+      (response, uri) = next;
+      if (uri.removeFragment() != previousUri.removeFragment()) {
+        await response.listen(null).cancel();
+        throw StateError('下载中途文件地址发生变化，请重试');
+      }
+    }
+  }
+
+  Future<void> _publishMedia(
+    VideoDownloadTask task,
+    File partial,
+    Uri uri,
+    Uri resolved,
+  ) async {
+    const known = {'.mp4', '.mkv', '.webm', '.m4v', '.mov', '.ts', '.avi', '.flv', '.asf', '.wmv'};
+    final extension = [resolved, uri]
+        .map((u) => p.extension(u.path).toLowerCase())
+        .where(known.contains)
+        .firstOrNull;
+    var suffix = extension ?? '.mp4';
+    final format = await VideoDiskCache.detectFileFormat(partial);
+    if (format == '.mpd') {
+      await partial.delete();
+      throw StateError('DASH 清单暂不支持离线下载');
+    }
+    if (VideoDiskCache.mpvFormats.contains(format) &&
+        !(format == '.mkv' && suffix == '.webm') &&
+        !(format == '.asf' && suffix == '.wmv')) {
+      suffix = format;
+    }
+    _check(task);
+    final name = 'media$suffix';
+    await partial.rename(p.join(folder(task), name));
+    task.fileName = name;
   }
 
   Future<void> _download(
@@ -512,9 +994,6 @@ class VideoDownloadCenter extends ChangeNotifier {
     Uri uri,
     Map<String, String> headers,
   ) async {
-    final extension = p.extension(uri.path).toLowerCase();
-    final targetName =
-        'media${['.mp4', '.mkv', '.webm', '.m4v', '.mov', '.ts', '.avi', '.flv'].contains(extension) ? extension : '.mp4'}';
     final partial = File(p.join(folder(task), 'media.mp4.part'));
     final validator = File(p.join(folder(task), 'resume.json'));
     final signature = sha256
@@ -524,125 +1003,196 @@ class VideoDownloadCenter extends ChangeNotifier {
     try {
       old = jsonDecode(await validator.readAsString()) as Map;
     } catch (_) {}
-    if (old['signature'] != signature && await partial.exists()) {
-      await partial.delete();
-    }
-    var offset = await partial.exists() ? await partial.length() : 0;
+    final previousValidator = old['validator'];
+    final previousIfRange = _ifRange(previousValidator, old['validatorDate']);
+    // A stable URL and file length cannot identify the version that was
+    // interrupted. Keep the old bytes until a fresh response can replace them.
+    final canResume = old['signature'] == signature &&
+        old['encoded'] != true && previousIfRange != null;
+    var offset = canResume && await partial.exists() ? await partial.length() : 0;
     final extra = <String, String>{
       if (offset > 0) 'Range': 'bytes=$offset-',
-      if (offset > 0 && old['validator'] is String)
-        'If-Range': old['validator'] as String,
+      if (offset > 0) 'If-Range': ?previousIfRange,
     };
-    final response = await _open(task, uri, uri, headers, extra: extra);
+    var scopedHeaders = Map.of(headers);
+    var (response, finalUri) = offset == 0
+        ? await _openFromStart(task, uri, uri, scopedHeaders)
+        : await _open(task, uri, uri, scopedHeaders, extra: extra);
+    final responseValidator = _validator(response);
+    final changed =
+        previousValidator != null &&
+        responseValidator != null &&
+        previousValidator != responseValidator;
+    // An ETag is scoped to its target resource. Another CDN path or query can
+    // serve different bytes with the same tag and length.
+    final headerHash = _headerHash(headers);
+    final sameResource = old['responseHash'] == _addressHash(finalUri);
+    final sameRequest =
+        old['requestHash'] == _addressHash(uri) &&
+        old['headerHash'] == headerHash;
+    final previousLength = old['length'] is int ? old['length'] as int : null;
+    final range = response.headers.value('content-range');
+    final responseTotal = int.tryParse(range?.split('/').last ?? '');
+    final returnedStart = int.tryParse(mediaContentRange.firstMatch(range ?? '')?[1] ?? '');
+    final restart =
+        changed ||
+        !sameResource ||
+        (!sameRequest && !_sameStrongTag(previousValidator, response)) ||
+        (previousLength != null &&
+            responseTotal != null &&
+            previousLength != responseTotal);
+    if (offset > 0 &&
+        (const [400, 403, 405, 412].contains(response.statusCode) ||
+            response.statusCode == 206 &&
+                (returnedStart != offset || _encoding(response) != 'identity' || restart) ||
+            response.statusCode == 416 &&
+                (restart ||
+                    response.headers.value('content-range') !=
+                        'bytes */$offset'))) {
+      await response.listen(null).cancel();
+      offset = 0;
+      scopedHeaders = Map.of(headers);
+      (response, finalUri) = await _openFromStart(task, uri, uri, scopedHeaders);
+    }
     if (response.statusCode == 416 &&
         offset > 0 &&
         response.headers.value('content-range') == 'bytes */$offset') {
-      await response.drain<void>();
-      await partial.rename(p.join(folder(task), targetName));
-      task.fileName = targetName;
+      await response.listen(null).cancel();
+      await _publishMedia(task, partial, uri, finalUri);
+      task.bytes = task.totalBytes = offset;
       return;
     }
     if (response.statusCode != 200 && response.statusCode != 206) {
+      await response.listen(null).cancel();
       throw StateError('下载请求失败：HTTP ${response.statusCode}');
     }
+    if (response.headers.contentType?.mimeType == 'application/dash+xml') {
+      await response.listen(null).cancel();
+      throw StateError('DASH 清单暂不支持离线下载');
+    }
+    if (response.statusCode == 200) offset = 0;
+    var etag =
+        _validator(response) ??
+        (offset > 0 ? old['validator'] as String? : null);
+    var validatorDate = _validator(response) == null && offset > 0
+        ? old['validatorDate'] as String?
+        : response.headers.value('date');
     final iterator = StreamIterator(
-      response.timeout(const Duration(seconds: 45)),
+      _downloadBody(
+        task,
+        finalUri,
+        uri,
+        scopedHeaders,
+        response,
+        offset,
+        expectedLength: offset > 0 ? previousLength : null,
+        expectedValidator: etag,
+        expectedDate: validatorDate,
+        onValidator: (value, date) {
+          etag = value;
+          validatorDate = date;
+        },
+        onLength: (length) => task.totalBytes = length,
+      ),
     );
-    if (!await iterator.moveNext()) throw StateError('视频响应为空');
-    final first = <int>[...iterator.current];
-    var ended = false;
-    while (first.length < 16) {
-      if (!await iterator.moveNext()) {
-        ended = true;
-        break;
-      }
-      first.addAll(iterator.current);
-    }
-    Stream<List<int>> stream() async* {
-      yield first;
-      while (!ended && await iterator.moveNext()) {
-        _check(task);
-        yield iterator.current;
-      }
-    }
-
-    final prefix = utf8
-        .decode(first.take(80).toList(), allowMalformed: true)
-        .trimLeft();
-    if (prefix.startsWith('#EXTM3U')) {
-      final playlist = await _text(stream());
-      task.bytes = 0;
-      task.totalBytes = 0;
-      await _playlist(task, uri, uri, headers, playlist, 'index', 0);
-      task.fileName = 'index.m3u8';
-      return;
-    }
-    final type = response.headers.contentType?.mimeType ?? '';
-    if (type == 'application/json' || type == 'text/html') {
-      throw StateError('站点返回的不是视频文件');
-    }
-    if (prefix.toLowerCase().startsWith('<!doctype') ||
-        prefix.toLowerCase().startsWith('<html')) {
-      throw StateError('站点返回网页而非视频文件');
-    }
-    if (response.statusCode == 206) {
-      if (!RegExp('^bytes $offset-')
-          .hasMatch(response.headers.value('content-range') ?? '')) {
-        throw StateError('服务器续传位置不匹配，请重试');
-      }
-    } else {
-      offset = 0;
-    }
-    final etag =
-        response.headers.value('etag') ??
-        response.headers.value('last-modified');
-    await validator.writeAsString(
-      jsonEncode({'signature': signature, 'validator': ?etag}),
-      flush: true,
-    );
-    task.bytes = offset;
-    task.totalBytes = response.contentLength < 0
-        ? 0
-        : offset + response.contentLength;
-    final sink = partial.openWrite(
-      mode: offset > 0 ? FileMode.append : FileMode.write,
-    );
-    final watch = Stopwatch()..start();
-    var interval = 0;
-    var policyBytes = 0;
     try {
-      await for (final bytes in stream()) {
-        _check(task);
-        sink.add(bytes);
-        task.bytes += bytes.length;
-        interval += bytes.length;
-        policyBytes += bytes.length;
-        if (policyBytes >= 8 * 1024 * 1024) {
-          await _policyCheckpoint(task);
-          policyBytes = 0;
+      if (!await iterator.moveNext()) throw StateError('视频响应为空');
+      final first = <int>[...iterator.current];
+      var ended = false;
+      while (first.length < 16) {
+        if (!await iterator.moveNext()) {
+          ended = true;
+          break;
         }
-        if (watch.elapsedMilliseconds >= 300) {
-          task.bytesPerSecond = interval * 1000 / watch.elapsedMilliseconds;
-          interval = 0;
-          watch.reset();
-          _notifyProgress();
-        }
-        if (_yieldToPlayback) {
-          await Future<void>.delayed(const Duration(milliseconds: 8));
+        first.addAll(iterator.current);
+      }
+      Stream<List<int>> stream() async* {
+        yield first;
+        while (!ended && await iterator.moveNext()) {
+          _check(task);
+          yield iterator.current;
         }
       }
-      await sink.flush();
+
+      final prefix = utf8
+          .decode(first.take(80).toList(), allowMalformed: true)
+          .trimLeft();
+      if (offset == 0 && prefix.startsWith('#EXTM3U')) {
+        final playlist = await _text(stream());
+        task.bytes = 0;
+        task.totalBytes = 0;
+        await _playlist(task, finalUri, uri, scopedHeaders, playlist, 'index', 0);
+        task.fileName = 'index.m3u8';
+        return;
+      }
+      final type = response.headers.contentType?.mimeType ?? '';
+      if (type == 'application/json' || type == 'text/html') {
+        throw StateError('站点返回的不是视频文件');
+      }
+      if (offset == 0 && _isHtml(prefix)) {
+        throw StateError('站点返回网页而非视频文件');
+      }
+      if (offset == 0 && await partial.exists()) await partial.delete();
+      final resumeInfo = <String, Object?>{
+        'signature': signature,
+        'requestHash': _addressHash(uri),
+        'responseHash': _addressHash(finalUri),
+        'headerHash': headerHash,
+        if (task.totalBytes > 0) 'length': task.totalBytes,
+        'validator': ?etag,
+        if (etag != null && validatorDate != null) 'validatorDate': validatorDate,
+        if (_encoding(response) != 'identity') 'encoded': true,
+      };
+      await validator.writeAsString(jsonEncode(resumeInfo), flush: true);
+      task.bytes = offset;
+      final sink = partial.openWrite(
+        mode: offset > 0 ? FileMode.append : FileMode.write,
+      );
+      final watch = Stopwatch()..start();
+      var interval = 0;
+      var policyBytes = 0;
+      try {
+        await for (final bytes in stream()) {
+          _check(task);
+          // Some origins first disclose the validator or length on a later
+          // range. Persist it before appending bytes from that response.
+          if (resumeInfo['validator'] != etag ||
+              task.totalBytes > 0 && resumeInfo['length'] != task.totalBytes) {
+            if (etag != null) resumeInfo['validator'] = etag;
+            if (validatorDate != null) resumeInfo['validatorDate'] = validatorDate;
+            if (task.totalBytes > 0) resumeInfo['length'] = task.totalBytes;
+            await validator.writeAsString(jsonEncode(resumeInfo), flush: true);
+          }
+          sink.add(bytes);
+          task.bytes += bytes.length;
+          interval += bytes.length;
+          policyBytes += bytes.length;
+          if (policyBytes >= 8 * 1024 * 1024) {
+            await _policyCheckpoint(task);
+            policyBytes = 0;
+          }
+          if (watch.elapsedMilliseconds >= 300) {
+            task.bytesPerSecond = interval * 1000 / watch.elapsedMilliseconds;
+            interval = 0;
+            watch.reset();
+            _notifyProgress();
+          }
+          if (_yieldToPlayback) {
+            await Future<void>.delayed(const Duration(milliseconds: 8));
+          }
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      if (task.bytes == 0 ||
+          task.totalBytes > 0 && task.bytes != task.totalBytes) {
+        throw StateError('文件尚未下载完整');
+      }
+      await _publishMedia(task, partial, uri, finalUri);
     } finally {
-      await sink.close();
       await iterator.cancel();
     }
-    if (task.bytes == 0 ||
-        task.totalBytes > 0 && task.bytes != task.totalBytes) {
-      throw StateError('文件尚未下载完整');
-    }
-    _check(task);
-    await partial.rename(p.join(folder(task), targetName));
-    task.fileName = targetName;
   }
 
   Future<String> _text(Stream<List<int>> stream) async {
@@ -654,15 +1204,24 @@ class VideoDownloadCenter extends ChangeNotifier {
     return utf8.decode(bytes);
   }
 
-  Future<String> _fetchText(
+  Future<(String, Uri, Map<String, String>)> _fetchText(
     VideoDownloadTask task,
     Uri uri,
     Uri origin,
     Map<String, String> headers,
   ) async {
-    final r = await _open(task, uri, origin, headers);
-    if (r.statusCode != 200) throw StateError('播放清单不可用：HTTP ${r.statusCode}');
-    return _text(r.timeout(const Duration(seconds: 45)));
+    await _policyCheckpoint(task);
+    final scopedHeaders = Map.of(headers);
+    final (r, finalUri) = await _openFromStart(task, uri, origin, scopedHeaders);
+    if (r.statusCode != 200 && r.statusCode != 206) {
+      await r.listen(null).cancel();
+      throw StateError('播放清单不可用：HTTP ${r.statusCode}');
+    }
+    return (
+      await _text(_downloadBody(task, finalUri, origin, scopedHeaders, r, 0)),
+      finalUri,
+      scopedHeaders,
+    );
   }
 
   Future<void> _playlist(
@@ -677,120 +1236,154 @@ class VideoDownloadCenter extends ChangeNotifier {
     if (depth > 3 || !body.trimLeft().startsWith('#EXTM3U')) {
       throw StateError('播放清单格式无效');
     }
-    final lines = const LineSplitter().convert(body);
-    final variants = <({String tag, String url, int bandwidth})>[];
-    for (var i = 0; i < lines.length; i++) {
-      if (lines[i].startsWith('#EXT-X-STREAM-INF:') && i + 1 < lines.length) {
-        final bandwidth =
-            int.tryParse(
-              RegExp(r'(?:^|,)BANDWIDTH=(\d+)')
-                      .firstMatch(lines[i].split(':').skip(1).join(':'))
-                      ?.group(1) ??
-                  '',
-            ) ??
-            0;
-        variants.add((
-          tag: lines[i],
-          url: lines[i + 1].trim(),
-          bandwidth: bandwidth,
-        ));
-      }
+    if (VideoDiskCache.instance.skipHlsAds) body = HlsAdFilter.filter(body);
+    final lines = const LineSplitter().convert(body).map((line) => line.trim()).toList();
+    final variants =
+        <({Map<String, String> attributes, String url, HlsVariantQuality quality, bool? hasVideo})>[];
+    for (final pair in hlsVariants(lines)) {
+      final attributes = hlsRawAttributes(lines[pair.tag]);
+      variants.add((
+        attributes: attributes,
+        url: lines[pair.uri].trim(),
+        quality: hlsVariantQuality(attributes),
+        hasVideo: hlsVariantHasVideo(attributes),
+      ));
+    }
+    if (variants.isEmpty &&
+        lines.any((line) => line.trimLeft().startsWith('#EXT-X-STREAM-INF:'))) {
+      throw StateError('播放清单缺少画质线路地址');
     }
     if (variants.isNotEmpty) {
-      variants.sort((a, b) => b.bandwidth.compareTo(a.bandwidth));
-      final best = variants.first;
-      var tag = best.tag.replaceAll(RegExp(r',?SUBTITLES="[^"]*"'), '');
-      final group = RegExp(r'AUDIO="([^"]+)"').firstMatch(tag)?.group(1);
-      final master = <String>['#EXTM3U'];
-      if (group != null) {
-        final audios = lines
-            .where(
-              (l) =>
-                  l.startsWith('#EXT-X-MEDIA:') &&
-                  l.contains('TYPE=AUDIO') &&
-                  l.contains('GROUP-ID="$group"') &&
-                  l.contains('URI="'),
-            )
-            .toList();
-        if (audios.isNotEmpty) {
-          final audio =
-              audios.where((l) => l.contains('DEFAULT=YES')).firstOrNull ??
-              audios.first;
-          final url = uri.resolve(
-            RegExp(r'URI="([^"]+)"').firstMatch(audio)!.group(1)!,
-          );
-          final text = await _fetchText(task, url, origin, headers);
-          await _playlist(
-            task,
-            url,
-            origin,
-            headers,
-            text,
-            '$name-audio',
-            depth + 1,
-          );
-          master.add(
-            audio.replaceFirst(
-              RegExp(r'URI="[^"]+"'),
-              'URI="$name-audio.m3u8"',
-            ),
-          );
-        } else {
-          tag = tag.replaceAll(RegExp(r',?AUDIO="[^"]*"'), '');
-        }
+      if (variants.any((v) => v.hasVideo != false)) {
+        variants.removeWhere((v) => v.hasVideo == false);
       }
-      final url = uri.resolve(best.url);
-      final text = await _fetchText(task, url, origin, headers);
+      variants.sort((a, b) => compareHlsQuality(a.quality, b.quality));
+      final best = variants.first;
+      final attributes = best.attributes..remove('SUBTITLES');
+      final master = <String>['#EXTM3U'];
+      final renditionFiles = <Uri, String>{};
+      final bestUrl = uri.resolve(best.url);
+      final retained = <String>{};
+      for (final line in lines.where((l) => l.startsWith('#EXT-X-MEDIA:'))) {
+        final media = hlsRawAttributes(line);
+        final type = media['TYPE'];
+        if (type != 'AUDIO' && type != 'VIDEO' && type != 'CLOSED-CAPTIONS') continue;
+        if (media['GROUP-ID'] == null ||
+            media['GROUP-ID'] != attributes[type]) {
+          continue;
+        }
+        final rawUri = media['URI'];
+        if ((type == 'AUDIO' || type == 'VIDEO') && rawUri != null) {
+          final url = uri.resolve(hlsAttributeValue(rawUri));
+          var local = url == bestUrl ? '$name-video' : renditionFiles[url];
+          if (local == null) {
+            final prefix = type == 'AUDIO' ? '$name-audio' : '$name-angle';
+            local = renditionFiles.isEmpty ? prefix : '$prefix-${renditionFiles.length + 1}';
+            final (text, finalUri, trackHeaders) = await _fetchText(
+              task,
+              url,
+              origin,
+              headers,
+            );
+            await _playlist(
+              task,
+              finalUri,
+              origin,
+              trackHeaders,
+              text,
+              local,
+              depth + 1,
+            );
+            renditionFiles[url] = local;
+          }
+          media['URI'] = '"$local.m3u8"';
+        }
+        retained.add(type!);
+        master.add(hlsTag('#EXT-X-MEDIA', media));
+      }
+      if (!retained.contains('AUDIO')) attributes.remove('AUDIO');
+      if (!retained.contains('VIDEO')) attributes.remove('VIDEO');
+      if (!retained.contains('CLOSED-CAPTIONS') &&
+          attributes['CLOSED-CAPTIONS'] != 'NONE') {
+        attributes.remove('CLOSED-CAPTIONS');
+      }
+      final (text, finalUri, videoHeaders) = await _fetchText(task, bestUrl, origin, headers);
       await _playlist(
         task,
-        url,
+        finalUri,
         origin,
-        headers,
+        videoHeaders,
         text,
         '$name-video',
         depth + 1,
       );
-      master.addAll([tag, '$name-video.m3u8']);
+      master.addAll([
+        hlsTag('#EXT-X-STREAM-INF', attributes),
+        '$name-video.m3u8',
+      ]);
       await File(p.join(folder(task), '$name.m3u8'))
           .writeAsString('${master.join('\n')}\n', flush: true);
       return;
     }
     final unsupported = unsupportedPlaylistReason(body);
     if (unsupported != null) throw StateError(unsupported);
-    final plan = sha256.convert(utf8.encode(body)).toString().substring(0, 16);
+    // Identical relative names can resolve to different keys and media after
+    // a resolver changes CDN or directory between attempts.
+    final plan = sha256
+        .convert(utf8.encode(jsonEncode(['ts-v3', origin.origin, uri.toString(), _headerHash(headers), body])))
+        .toString()
+        .substring(0, 16);
     final resourceDir = Directory(p.join(folder(task), '$name-$plan'));
     await resourceDir.create(recursive: true);
     final output = <String>[];
+    var encrypted = false;
+    var keySuffix = '';
+    var mappedMp4 = false;
     var index = 0;
     task.total += lines.where((l) => l.isNotEmpty && !l.startsWith('#')).length;
-    final pending = <Future<void>>[];
+    final pending = <Future<void> Function()>[];
     Future<void> flushSegments() async {
-      final batch = List<Future<void>>.of(pending);
+      if (pending.isEmpty) return;
+      await _policyCheckpoint(task);
+      await Future.wait(pending.map((download) => download()));
       pending.clear();
-      await Future.wait(batch);
     }
 
     for (final line in lines) {
       _check(task);
       if (line.startsWith('#EXT-X-KEY:') || line.startsWith('#EXT-X-MAP:')) {
         await flushSegments();
-        final match = RegExp(r'URI="([^"]+)"').firstMatch(line);
-        if (match != null) {
-          final url = uri.resolve(match.group(1)!);
-          final key = line.startsWith('#EXT-X-KEY:');
+        final key = line.startsWith('#EXT-X-KEY:');
+        final attributes = hlsRawAttributes(line);
+        if (key) {
+          encrypted = attributes['METHOD'] != 'NONE';
+          keySuffix = '';
+        }
+        final rawUri = attributes['URI'];
+        if (rawUri != null) {
+          final url = uri.resolve(hlsAttributeValue(rawUri));
           final relative =
-              '$name-$plan/${key ? 'key' : 'map'}-${index++}.${key ? 'key' : 'mp4'}';
+              '$name-$plan/${key ? 'key' : 'map'}-${index++}$keySuffix.${key ? 'key' : 'mp4'}';
+          final file = File(p.join(folder(task), relative));
+          await _policyCheckpoint(task);
           await _resource(
             task,
             url,
             origin,
             headers,
-            File(p.join(folder(task), relative)),
+            file,
             key: key,
           );
-          output.add(
-            line.replaceRange(match.start, match.end, 'URI="$relative"'),
-          );
+          if (key) {
+            // Key URLs can stay the same while the encrypted segments rotate.
+            keySuffix = '-${sha256.convert(await file.readAsBytes()).toString().substring(0, 16)}';
+          } else {
+            mappedMp4 = encrypted
+                ? const {'.mp4', '.m4s', '.m4a'}.contains(p.extension(url.path).toLowerCase())
+                : await hasMp4BoxHeader(file);
+          }
+          attributes['URI'] = '"$relative"';
+          output.add(hlsTag(key ? '#EXT-X-KEY' : '#EXT-X-MAP', attributes));
           continue;
         }
       }
@@ -798,10 +1391,11 @@ class VideoDownloadCenter extends ChangeNotifier {
         final url = uri.resolve(line);
         final suffix = p.extension(url.path).toLowerCase();
         final extension =
-            ['.ts', '.m4s', '.mp4', '.aac', '.mp3'].contains(suffix)
+            const {'.ts', '.m4s', '.mp4', '.aac', '.mp3', '.ac3', '.ec3', '.eac3'}.contains(suffix)
             ? suffix
-            : '.ts';
-        final relative = '$name-$plan/segment-${index++}$extension';
+            : mappedMp4 ? '.m4s' : '.ts';
+        final relative = '$name-$plan/segment-${index++}$keySuffix$extension';
+        final unwrap = !encrypted && extension == '.ts';
         pending.add(() async {
           if (_yieldToPlayback) {
             await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -812,13 +1406,13 @@ class VideoDownloadCenter extends ChangeNotifier {
             origin,
             headers,
             File(p.join(folder(task), relative)),
+            unwrap: unwrap,
           );
           task.completed++;
           _notifyProgress();
-        }());
+        });
         output.add(relative);
         if (pending.length >= (_yieldToPlayback ? 1 : 3)) {
-          await _policyCheckpoint(task);
           await flushSegments();
         }
       } else {
@@ -840,17 +1434,31 @@ class VideoDownloadCenter extends ChangeNotifier {
     if (lines.any((line) => line.startsWith('#EXT-X-BYTERANGE'))) {
       return '该线路使用字节范围 HLS，暂不支持下载';
     }
-    if (lines.any(
-      (line) =>
-          line.startsWith('#EXT-X-KEY:') &&
-          !line.contains('METHOD=NONE') &&
-          (!line.contains('METHOD=AES-128') ||
-              line.contains('KEYFORMAT=') &&
-                  !line.contains('KEYFORMAT="identity"')),
-    )) {
-      return '该加密格式不支持离线下载';
+    var needsMapIv = false;
+    for (final line in lines) {
+      final key = line.startsWith('#EXT-X-KEY:');
+      if (!key && !line.startsWith('#EXT-X-MAP:')) continue;
+      final attributes = hlsRawAttributes(line);
+      if (key) {
+        final method = attributes['METHOD'];
+        needsMapIv = method != 'NONE' && attributes['IV'] == null;
+        if (method == 'NONE') continue;
+        if (method != 'AES-128' ||
+            hlsAttributeValue(attributes['KEYFORMAT'] ?? 'identity') != 'identity') {
+          return '该加密格式不支持离线下载';
+        }
+      }
+      if (hlsAttributeValue(attributes['URI'] ?? '').trim().isEmpty) {
+        return key ? '播放清单缺少密钥地址' : '播放清单缺少初始化片段地址';
+      }
+      if (!key && needsMapIv) return '加密初始化片段缺少 IV';
     }
     return null;
+  }
+
+  static bool _isHtml(String prefix) {
+    final text = prefix.trimLeft().toLowerCase();
+    return text.startsWith('<!doctype') || text.startsWith('<html');
   }
 
   Future<void> _resource(
@@ -860,21 +1468,35 @@ class VideoDownloadCenter extends ChangeNotifier {
     Map<String, String> headers,
     File file, {
     bool key = false,
+    bool unwrap = false,
   }) async {
-    if (await file.exists() && await file.length() > 0) {
+    if (!key && await file.exists() && await file.length() > 0) {
       task.bytes += await file.length();
       return;
     }
-    final r = await _open(task, uri, origin, headers);
+    final scopedHeaders = Map.of(headers);
+    final (r, finalUri) = await _openFromStart(task, uri, origin, scopedHeaders);
     if (r.statusCode != 200 && r.statusCode != 206) {
+      await r.listen(null).cancel();
       throw StateError('分片下载失败：HTTP ${r.statusCode}');
     }
     final temporary = File('${file.path}.part');
     final sink = temporary.openWrite();
-    var size = 0;
+    final prefix = <int>[];
+    var size = 0, received = 0;
     try {
-      await for (final b in r.timeout(const Duration(seconds: 45))) {
+      final body = _downloadBody(task, finalUri, origin, scopedHeaders, r, 0).map((chunk) {
+        received += chunk.length;
+        return chunk;
+      });
+      await for (final b in (unwrap ? unwrapTransportStream(body) : body)) {
         _check(task);
+        if (!key && prefix.length < 80) {
+          prefix.addAll(b.take(80 - prefix.length));
+          if (_isHtml(utf8.decode(prefix, allowMalformed: true))) {
+            throw StateError('分片下载返回网页，请重试');
+          }
+        }
         sink.add(b);
         size += b.length;
         task.bytes += b.length;
@@ -893,7 +1515,10 @@ class VideoDownloadCenter extends ChangeNotifier {
     }
     if (size == 0 ||
         key && size != 16 ||
-        r.contentLength >= 0 && size != r.contentLength) {
+        r.statusCode == 200 &&
+            _encoding(r) == 'identity' &&
+            r.contentLength >= 0 &&
+            received != r.contentLength) {
       throw StateError('分片或密钥不完整');
     }
     _check(task);
@@ -906,6 +1531,7 @@ class VideoDownloadCenter extends ChangeNotifier {
       final part = File(p.join(root.path, 'tasks.json.part'));
       await part.writeAsString(bytes, flush: true);
       await part.rename(p.join(root.path, 'tasks.json'));
+      storageError = null;
     });
     _writes = next.catchError((Object _) {
       storageError = '下载任务未能保存，请检查剩余空间';
@@ -913,7 +1539,12 @@ class VideoDownloadCenter extends ChangeNotifier {
     return _writes;
   }
 
-  Future<void> flush() => _writes;
+  Future<void> flush() async {
+    // A completed merge can still be removing fragments and writing its
+    // final manifest. Flushing a running transfer only waits for its writes.
+    if (_active?.state == 'done') await _activeFinished?.future;
+    await _writes;
+  }
 }
 
 class _Paused implements Exception {

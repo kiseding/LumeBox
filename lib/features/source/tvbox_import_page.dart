@@ -218,145 +218,156 @@ class _TvBoxImportPageState extends State<TvBoxImportPage> {
           slivers: [
             SliverPadding(
               padding: const EdgeInsets.all(16),
-              sliver: SliverList.list(
-                children: [
-                  const Text(
-                    '导入后在「视频 → 源选择 → TVBOX」显示。支持采集 JSON/XML、Python Spider 和直播 M3U/TXT。导入成功不代表源站当前可用。',
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _local,
-                    icon: const Icon(Icons.folder_open),
-                    label: const Text('选择本地 JSON 文件'),
-                  ),
-                  TextField(
-                    controller: _input,
-                    enabled: !_busy,
-                    minLines: 1,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: '配置链接或 JSON',
-                      hintText: 'https://…/config.json',
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 8,
+              sliver: SliverToBoxAdapter(
+                child: GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      FilledButton(
-                        onPressed: _busy ? null : _loadInput,
-                        child: const Text('读取并预览'),
+                      const Text(
+                        '导入后在「视频 → 源选择 → TVBOX」显示。支持采集 JSON/XML、Python Spider 和直播 M3U/TXT。导入成功不代表源站当前可用。',
                       ),
-                      TextButton(
-                        onPressed: _busy
-                            ? null
-                            : () async {
-                                final value = await Clipboard.getData(
-                                  Clipboard.kTextPlain,
-                                );
-                                if (mounted) {
-                                  setState(
-                                    () => _input.text = value?.text ?? '',
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _local,
+                        icon: const Icon(Icons.folder_open),
+                        label: const Text('选择本地 JSON 文件'),
+                      ),
+                      TextField(
+                        controller: _input,
+                        enabled: !_busy,
+                        minLines: 1,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: '配置链接或 JSON',
+                          hintText: 'https://…/config.json',
+                        ),
+                      ),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          FilledButton(
+                            onPressed: _busy ? null : _loadInput,
+                            child: const Text('读取并预览'),
+                          ),
+                          TextButton(
+                            onPressed: _busy
+                                ? null
+                                : () async {
+                                    final value = await Clipboard.getData(
+                                      Clipboard.kTextPlain,
+                                    );
+                                    if (mounted) {
+                                      setState(
+                                        () => _input.text = value?.text ?? '',
+                                      );
+                                    }
+                                  },
+                            child: const Text('粘贴'),
+                          ),
+                        ],
+                      ),
+                      if (_busy) const LinearProgressIndicator(),
+                      if (_error.isNotEmpty) SelectableText(_error),
+                      if (_config != null) ...[
+                        Text(
+                          '$_label · ${_config!.entries.length} 项 · 可导入 ${_config!.entries.where((e) => e.supported).length} 项',
+                        ),
+                        const Text('不兼容项会保留原因；不下载或执行 JAR/CSP 插件。'),
+                        ExpansionTile(
+                          title: Text('配置说明 ${_config!.notes.length} 项'),
+                          children: [
+                            for (final note in _config!.notes)
+                              ListTile(dense: true, title: Text(note)),
+                          ],
+                        ),
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            TextButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => setState(
+                                      () => _selected.addAll(
+                                        entries
+                                            .where((e) => e.supported)
+                                            .map((e) => e.id),
+                                      ),
+                                    ),
+                              child: const Text('选择当前列表'),
+                            ),
+                            TextButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => setState(() => _selected.clear()),
+                              child: const Text('取消全选'),
+                            ),
+                            if (_busy)
+                              TextButton(
+                                onPressed: () => setState(() => _cancel = true),
+                                child: const Text('停止后续导入'),
+                              ),
+                          ],
+                        ),
+                        if (_results.isNotEmpty)
+                          Text(
+                            '导入成功 $successful 项 · 失败 ${_results.length - successful} 项',
+                          ),
+                        if (successful > 0 && !_busy)
+                          TextButton.icon(
+                            icon: const Icon(Icons.video_library_outlined),
+                            label: const Text('在视频 → TVBOX 中查看'),
+                            onPressed: () async {
+                              final selected =
+                                  await Navigator.push<VideoSourceChoice>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => VideoSourcePicker(
+                                        manager: _manager,
+                                        initialType: VideoSourceType.tvbox,
+                                      ),
+                                    ),
                                   );
-                                }
-                              },
-                        child: const Text('粘贴'),
-                      ),
+                              if (selected?.sourceId != null) {
+                                await _manager.select(selected!.sourceId!);
+                                SourceSubscriptionSync.revision(Section.video)
+                                    .value++;
+                              }
+                            },
+                          ),
+                        if (_progress.isNotEmpty) Text(_progress),
+                        TextField(
+                          controller: _search,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            labelText: '搜索名称或接口地址',
+                          ),
+                        ),
+                        DropdownButton<String>(
+                          value: _filter,
+                          isExpanded: true,
+                          items: const [
+                            DropdownMenuItem(value: 'all', child: Text('全部条目')),
+                            DropdownMenuItem(value: 'cms', child: Text('采集接口')),
+                            DropdownMenuItem(
+                              value: 'python',
+                              child: Text('Python 源'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'live',
+                              child: Text('直播列表'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'unsupported',
+                              child: Text('不兼容条目'),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _filter = value!),
+                        ),
+                      ],
                     ],
                   ),
-                  if (_busy) const LinearProgressIndicator(),
-                  if (_error.isNotEmpty) SelectableText(_error),
-                  if (_config != null) ...[
-                    Text(
-                      '$_label · ${_config!.entries.length} 项 · 可导入 ${_config!.entries.where((e) => e.supported).length} 项',
-                    ),
-                    const Text('不兼容项会保留原因；不下载或执行 JAR/CSP 插件。'),
-                    ExpansionTile(
-                      title: Text('配置说明 ${_config!.notes.length} 项'),
-                      children: [
-                        for (final note in _config!.notes)
-                          ListTile(dense: true, title: Text(note)),
-                      ],
-                    ),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        TextButton(
-                          onPressed: _busy
-                              ? null
-                              : () => setState(
-                                  () => _selected.addAll(
-                                    entries
-                                        .where((e) => e.supported)
-                                        .map((e) => e.id),
-                                  ),
-                                ),
-                          child: const Text('选择当前列表'),
-                        ),
-                        TextButton(
-                          onPressed: _busy
-                              ? null
-                              : () => setState(() => _selected.clear()),
-                          child: const Text('取消全选'),
-                        ),
-                        if (_busy)
-                          TextButton(
-                            onPressed: () => setState(() => _cancel = true),
-                            child: const Text('停止后续导入'),
-                          ),
-                      ],
-                    ),
-                    if (_results.isNotEmpty)
-                      Text(
-                        '导入成功 $successful 项 · 失败 ${_results.length - successful} 项',
-                      ),
-                    if (successful > 0 && !_busy)
-                      TextButton.icon(
-                        icon: const Icon(Icons.video_library_outlined),
-                        label: const Text('在视频 → TVBOX 中查看'),
-                        onPressed: () async {
-                          final selected =
-                              await Navigator.push<VideoSourceChoice>(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => VideoSourcePicker(
-                                    manager: _manager,
-                                    initialType: VideoSourceType.tvbox,
-                                  ),
-                                ),
-                              );
-                          if (selected?.sourceId != null) {
-                            await _manager.select(selected!.sourceId!);
-                            SourceSubscriptionSync.revision(Section.video)
-                                .value++;
-                          }
-                        },
-                      ),
-                    if (_progress.isNotEmpty) Text(_progress),
-                    TextField(
-                      controller: _search,
-                      onChanged: (_) => setState(() {}),
-                      decoration: const InputDecoration(labelText: '搜索名称或接口地址'),
-                    ),
-                    DropdownButton<String>(
-                      value: _filter,
-                      isExpanded: true,
-                      items: const [
-                        DropdownMenuItem(value: 'all', child: Text('全部条目')),
-                        DropdownMenuItem(value: 'cms', child: Text('采集接口')),
-                        DropdownMenuItem(
-                          value: 'python',
-                          child: Text('Python 源'),
-                        ),
-                        DropdownMenuItem(value: 'live', child: Text('直播列表')),
-                        DropdownMenuItem(
-                          value: 'unsupported',
-                          child: Text('不兼容条目'),
-                        ),
-                      ],
-                      onChanged: (value) => setState(() => _filter = value!),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
             SliverList.builder(

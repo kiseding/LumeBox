@@ -1,3 +1,5 @@
+import 'player_appearance_scope.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -25,6 +27,8 @@ class FrostedGlassWidget extends StatefulWidget {
     this.nativeStyle,
     this.neutralTint = false,
     this.materialOpacity = 1,
+    this.nativeBrightness,
+    this.nativeBaseOpacity = .32,
     required this.child,
   });
   final double blur, opacity, radius;
@@ -39,6 +43,8 @@ class FrostedGlassWidget extends StatefulWidget {
   final DockNativeGlassStyle? nativeStyle;
   final bool neutralTint;
   final double materialOpacity;
+  final Brightness? nativeBrightness;
+  final double nativeBaseOpacity;
   final Color? color;
   final GlassPart? part;
   final Widget child;
@@ -52,6 +58,9 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: FrostedSettings.instance,
     builder: (context, _) {
+      final useNativeGlass =
+          widget.nativeGlass &&
+          PlayerAppearanceScope.nativeOf(context) != false;
       final settings = FrostedSettings.instance;
       final style = settings.style(
         ModuleGlassScope.moduleOf(context),
@@ -69,12 +78,12 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
           widget.interactive;
       final radius =
           widget.radius *
-          (DockNativeGlass.supported && widget.nativeGlass
+          (DockNativeGlass.supported && useNativeGlass
               ? settings.native.radiusScale
               : style.value(GlassParameter.radius));
       final corners = BorderRadius.circular(radius);
       if (DockNativeGlass.supported &&
-          !widget.nativeGlass &&
+          !useNativeGlass &&
           !widget.translucentOverlay) {
         // Ordinary scrolling content stays in Flutter's single render tree.
         // Do not create a platform view, blur pass or optical animation per card.
@@ -89,12 +98,24 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
           child: widget.child,
         );
       }
-      if (DockNativeGlass.supported && widget.nativeGlass) {
+      if (DockNativeGlass.supported && useNativeGlass) {
         return ClipRRect(
           borderRadius: corners,
           child: Stack(
             fit: StackFit.passthrough,
             children: [
+              Positioned.fill(
+                child: ColoredBox(
+                  color:
+                      (widget.color ??
+                              (Theme.of(context).brightness == Brightness.dark
+                                  ? const Color(0xFF171721)
+                                  : const Color(0xFFF2F2F5)))
+                          .withValues(
+                            alpha: widget.nativeBaseOpacity.clamp(0, 1),
+                          ),
+                ),
+              ),
               Positioned.fill(
                 child: DockNativeGlass(
                   borderRadius: corners,
@@ -111,6 +132,7 @@ class _FrostedGlassWidgetState extends State<FrostedGlassWidget> {
                       ? 0
                       : settings.native.tintOpacity,
                   materialOpacity: widget.materialOpacity,
+                  brightness: widget.nativeBrightness,
                   reduceTransparency:
                       !enabled || MediaQuery.highContrastOf(context),
                 ),

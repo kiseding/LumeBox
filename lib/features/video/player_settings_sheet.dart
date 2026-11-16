@@ -1,3 +1,4 @@
+import '../../shared/widgets/player_appearance_scope.dart';
 import '../../shared/widgets/number_setting_tile.dart';
 import 'intro_settings_page.dart';
 import 'player_layout.dart';
@@ -292,15 +293,19 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               }
             },
           ),
-          NativeSwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('记住手动选择的清晰度'),
-            subtitle: const Text(
-              '下一集优先使用手动选择的同名清晰度；未匹配或关闭时按默认清晰度选择，最后回退至本集最高画质。',
+          const SizedBox(height: 8),
+          _settingsCard(
+            padding: EdgeInsets.zero,
+            child: NativeSwitchListTile.adaptive(
+              contentPadding: widget.embedded ? null : EdgeInsets.zero,
+              title: const Text('记住手动选择的清晰度'),
+              subtitle: const Text(
+                '下一集优先使用手动选择的同名清晰度；未匹配或关闭时按默认清晰度选择，最后回退至本集最高画质。',
+              ),
+              value: settings.rememberManualQuality,
+              onChanged: (value) =>
+                  _update(settings.copyWith(rememberManualQuality: value)),
             ),
-            value: settings.rememberManualQuality,
-            onChanged: (value) =>
-                _update(settings.copyWith(rememberManualQuality: value)),
           ),
           SizedBox(height: widget.embedded ? 20 : 12),
         ],
@@ -315,7 +320,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const IntroSettingsPage(),
+                    builder: (_) =>
+                        PlayerAppearanceScope(child: const IntroSettingsPage()),
                   ),
                 ),
               ),
@@ -334,6 +340,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           SizedBox(height: widget.embedded ? 20 : 12),
         ],
         PresentationSettingsCard(
+          framed: widget.embedded,
           settings: settings,
           onChanged: _update,
           showSubtitles: false,
@@ -351,7 +358,9 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         SizedBox(height: widget.embedded ? 20 : 12),
         _section('音频', '多音轨选择与音频延迟（音画不同步时用）'),
         _audioCard(context),
+        SizedBox(height: widget.embedded ? 12 : 0),
         PresentationSettingsCard(
+          framed: widget.embedded,
           settings: settings,
           onChanged: _update,
           showPicture: false,
@@ -388,6 +397,8 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
           SizedBox(height: widget.embedded ? 20 : 12),
         ]),
       _group('controls', '手势与外观', Icons.touch_app_outlined, [
+        if (!widget.embedded || widget.categoryOnly != null)
+          const PlayerGlassShadeControl(),
         _section('按钮样式', '切换立即生效；全屏弹幕、倍速、选集保留文字'),
         SegmentedButton<PlayerControlStyle>(
           segments: const [
@@ -399,7 +410,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               _update(settings.copyWith(controlStyle: values.first)),
         ),
         SizedBox(height: widget.embedded ? 20 : 12),
-        _section('手势', 'AVPlayer / MPV / MDK 共用，横竖屏立即生效；锁屏时停用'),
+        _section('手势', 'AVP / MPV / AET 共用，横竖屏立即生效；锁屏时停用'),
         NativeSwitchListTile.adaptive(
           title: const Text('启用播放器手势'),
           subtitle: const Text('控制下列滑动和长按手势；不影响按钮与进度条操作'),
@@ -408,37 +419,18 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
             settings.copyWith(gestures: settings.gestures.copyWith(enabled: v)),
           ),
         ),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                '竖屏短剧上滑切下一集',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: widget.embedded ? LumeTypography.titleSize : 14,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-              ),
-            ),
-            Switch(
-              value: settings.swipeUpNext,
-              onChanged: (value) =>
-                  _update(settings.copyWith(swipeUpNext: value)),
-            ),
-          ],
-        ),
-        Text(
-          settings.swipeUpNext
-              ? '竖屏时在画面中间上滑即切下一集（左右两侧仍是亮度/音量）'
-              : '关闭时画面中间的竖直滑动不做动作',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: widget.embedded ? LumeTypography.descriptionSize : 12,
-            height: 1.4,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+        NativeSwitchListTile.adaptive(
+          title: const Text('竖屏短剧上下滑切集'),
+          subtitle: Text(
+            settings.swipeUpNext
+                ? '画面中间上滑下一集、下滑上一集，松手后切换；两侧仍调亮度和音量'
+                : '关闭时保留亮度、音量等原有手势',
           ),
+          value: settings.swipeUpNext,
+          onChanged: !settings.gestures.enabled
+              ? null
+              : (value) => _update(settings.copyWith(swipeUpNext: value)),
         ),
-        const SizedBox(height: 8),
         for (final item in [
           ('左侧上下滑调亮度', settings.gestures.brightness, 'brightness'),
           ('右侧上下滑调音量', settings.gestures.volume, 'volume'),
@@ -551,25 +543,22 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
         _decodingCard(context),
         SizedBox(height: widget.embedded ? 20 : 12),
         if (widget.connectionControls != null) widget.connectionControls!,
-        NativeSwitchListTile.adaptive(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('后台静默校验播放源'),
-          value: settings.backgroundSourceValidation,
-          onChanged: (value) =>
-              _update(settings.copyWith(backgroundSourceValidation: value)),
-        ),
-        Text(
-          '起播后在后台检查链接，失效时提示；不会自动切换线路。关闭后不做后台检查。',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: widget.embedded ? LumeTypography.descriptionSize : 12,
-            height: 1.4,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+        _settingsCard(
+          padding: EdgeInsets.zero,
+          child: NativeSwitchListTile.adaptive(
+            contentPadding: widget.embedded ? null : EdgeInsets.zero,
+            title: const Text('后台静默校验播放源'),
+            subtitle: const Text('起播后在后台检查链接，失效时提示；不会自动切换线路。关闭后不做后台检查。'),
+            value: settings.backgroundSourceValidation,
+            onChanged: (value) =>
+                _update(settings.copyWith(backgroundSourceValidation: value)),
           ),
         ),
       ]),
     ];
     final children = <Widget>[
+      if (widget.embedded && widget.categoryOnly == null)
+        const PlayerAppearanceControl(),
       if (widget.embedded && widget.categoryOnly == null) _categoryNavigation(),
       ...groups,
     ];
@@ -799,6 +788,7 @@ class _PlayerSettingsSheetState extends State<PlayerSettingsSheet> {
               ),
             ),
           ),
+          const PlayerAppearanceMenu(),
           IconButton(
             tooltip: '关闭',
             padding: EdgeInsets.zero,

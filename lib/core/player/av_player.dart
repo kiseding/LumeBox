@@ -42,8 +42,20 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
   bool _externalSelected = false;
   bool _subtitleSuppressed = false;
   List<String> _nativeStatus = const [];
-  AvPlayer({BufferingBackend? buffering})
-    : _buffering = buffering ?? createPlatformBufferingBackend();
+  AvPlayer({
+    BufferingBackend? buffering,
+    this.mediaLoadTimeout = const Duration(seconds: 30),
+  }) : _buffering = buffering ?? createPlatformBufferingBackend();
+
+  @visibleForTesting
+  final Duration mediaLoadTimeout;
+
+  /// Native initialization is enough to hand the loaded item to the page.
+  /// A paused HLS item may remain buffering until the page calls play().
+  @override
+  bool get mediaInitialized =>
+      _controller?.value.isInitialized == true &&
+      _controller?.value.hasError == false;
 
   /// 缓冲参数的原生写通道（测试可注入替身）。
   final BufferingBackend _buffering;
@@ -96,6 +108,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
   final _downloadClock = Stopwatch();
   double? _downloadBytesPerSecond;
   bool _readingNetwork = false;
+  bool? _firstFrameReady;
   bool _networkMedia = false;
   Duration _lastNetworkPoll = Duration.zero;
   bool _disposed = false;
@@ -134,6 +147,22 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     if (controller == null || !controller.value.isInitialized) {
       return const <PlayerTrack>[];
     }
+    if (Platform.isIOS) {
+      final result = await AvPresentationChannel.invoke<List<Object?>>(
+        nativePlayerId,
+        'audioTracks',
+      );
+      return [
+        for (final value in result ?? const [])
+          if (value is Map)
+            PlayerTrack(
+              id: '${value['id']}',
+              label: '${value['label']}',
+              language: value['language'] as String?,
+              selected: value['selected'] == true,
+            ),
+      ];
+    }
     if (!controller.isAudioTrackSupportAvailable()) {
       return const <PlayerTrack>[];
     }
@@ -158,6 +187,14 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
   Future<void> selectAudioTrack(String id) async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
+    if (Platform.isIOS) {
+      await AvPresentationChannel.invoke<Object?>(
+        nativePlayerId,
+        'selectAudio',
+        {'id': id},
+      );
+      return;
+    }
     try {
       await controller.selectAudioTrack(id);
     } catch (error, stackTrace) {
@@ -186,6 +223,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     _networkRetries = 0;
     _retryMedia = media;
     _retryAllowed = true;
+    _wantsPlay = false;
     await _loadMedia(media);
   }
 
@@ -198,6 +236,13 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     _loadCancelled = cancelled;
     final generation = ++_loadGeneration;
     _seekGeneration++;
+    _ticker?.cancel();
+    _ticker = null;
+    _controller?.removeListener(_sync);
+    _firstFrameReady = null;
+    _downloadBytesPerSecond = null;
+    _emit(const PlayerSnapshot(buffering: true));
+    _stats.value = const PlayerStats(engineLabel: 'AVPlayer');
     _externalSubtitles = null;
     _externalLabel = null;
     _externalSelected = false;
@@ -253,7 +298,8 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
       ..start();
     controller.addListener(_sync);
     try {
-      await Future.any<void>([controller.initialize(), cancelled.future]);
+      await Future.any<void>([controller.initialize(), cancelled.future])
+          .timeout(mediaLoadTimeout);
       if (_disposed ||
           generation != _loadGeneration ||
           !identical(controller, _controller)) {
@@ -286,7 +332,15 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
         return;
       }
       LumeLog.error(error, stackTrace);
-      if (_retryTimer == null && !_recoveringNetwork) {
+      if (error is TimeoutException) {
+        // Invalidate before disposal, so a late initialized event cannot turn
+        // this failed item into a successful playback after retry/switching.
+        _loadGeneration++;
+        if (!cancelled.isCompleted) cancelled.complete();
+        unawaited(_releaseController());
+      }
+      if (error is TimeoutException ||
+          (_retryTimer == null && !_recoveringNetwork)) {
         _emit(_snapshot.value, error: PlayerErrorText.describe(error));
       }
     }
@@ -612,7 +666,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          VideoPlayer(controller),
+          IgnorePointer(child: VideoPlayer(controller)),
           ValueListenableBuilder<VideoPlayerValue>(
             valueListenable: controller,
             builder: (context, value, _) {
@@ -702,6 +756,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     _downloadSampler.reset();
     _downloadBytesPerSecond = null;
     _lastNetworkPoll = Duration.zero;
+    _firstFrameReady = null;
     if (controller == null) return;
     controller.removeListener(_sync);
     try {
@@ -722,11 +777,31 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
       return;
     }
     _readingNetwork = true;
+    final generation = _loadGeneration;
     _lastNetworkPoll = _downloadClock.elapsed;
     try {
       // ignore: invalid_use_of_visible_for_testing_member
-      final bytes = await AvNetworkStatistics.readBytes(controller.playerId);
-      if (_disposed || !identical(controller, _controller)) return;
+      final id = controller.playerId;
+      final bytes = await AvNetworkStatistics.readBytes(id);
+      if (_disposed ||
+          generation != _loadGeneration ||
+          !identical(controller, _controller)) {
+        return;
+      }
+      if (_firstFrameReady != true) {
+        final ready = await AvNetworkStatistics.readFirstFrame(id);
+        if (_disposed ||
+            generation != _loadGeneration ||
+            !identical(controller, _controller)) {
+          return;
+        }
+        _firstFrameReady = ready;
+      }
+      if (_disposed ||
+          generation != _loadGeneration ||
+          !identical(controller, _controller)) {
+        return;
+      }
       _downloadBytesPerSecond = _downloadSampler.sample(
         bytes,
         _downloadClock.elapsed,
@@ -762,7 +837,11 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
         _recoveringNetwork = true;
         try {
           await _loadMedia(media);
-          if (_disposed || !identical(media, _retryMedia)) return;
+          if (_disposed ||
+              !identical(media, _retryMedia) ||
+              _snapshot.value.error != null) {
+            return;
+          }
           await seek(position);
           if (_wantsPlay && _retryAllowed) await play();
         } finally {
@@ -791,6 +870,7 @@ class AvPlayer extends AbstractPlayer implements PresentationEngine {
     );
     _stats.value = PlayerStats(
       engineLabel: 'AVPlayer',
+      firstFrameReady: _firstFrameReady,
       width: value.size.width > 0 ? value.size.width.round() : null,
       height: value.size.height > 0 ? value.size.height.round() : null,
       buffered: bufferedAhead(value),

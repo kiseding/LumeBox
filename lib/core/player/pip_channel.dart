@@ -64,7 +64,9 @@ class MethodChannelPipBackend implements PipBackend {
   Future<void> prepareAetherPlayer(int playerId) async {
     final ready = await const MethodChannel('lumebox/aether')
         .invokeMethod<bool>('preparePip', {'id': playerId});
-    if (ready != true) throw const PipException('AetherEngine 画中画内容源未就绪');
+    if (ready != true) {
+      throw const PipException('AetherEngine 画中画内容源未就绪');
+    }
   }
 
   Future<void> updateDanmaku(
@@ -85,12 +87,14 @@ class MethodChannelPipBackend implements PipBackend {
     required bool playing,
     required Duration duration,
     double playbackRate = 1,
+    bool transitioning = false,
   }) async {
     try {
       await _methods.invokeMethod<void>('updateState', {
         'playing': playing,
         'durationMs': duration.inMilliseconds.toDouble(),
         'playbackRate': playbackRate,
+        'transitioning': transitioning,
       });
     } catch (error) {
       LumeLog.info('[pip] 同步播放状态失败：$error');

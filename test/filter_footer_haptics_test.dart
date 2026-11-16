@@ -46,7 +46,9 @@ void main() {
       expect(before.left, 24);
       expect(
         before.right,
-        tester.getRect(find.byKey(const ValueKey('browse-left-drawer'))).right -
+        tester
+                .getRect(find.byKey(const Key('classification-drawer-frame')))
+                .right -
             24,
       );
       expect(height - footer.bottom, 34);
@@ -87,7 +89,7 @@ void main() {
     try {
       final preferences = AppPreferences();
       await preferences.boot();
-      preferences.haptics = true;
+      expect(preferences.haptics, isTrue);
       for (final strength in HapticStrength.values) {
         preferences.hapticStrength = strength;
         await preferences.selectionFeedback();
@@ -105,6 +107,14 @@ void main() {
       reopened.haptics = false;
       await reopened.selectionFeedback();
       expect(calls.length, 3);
+      reopened.save();
+      final disabled = AppPreferences();
+      await disabled.boot();
+      expect(disabled.haptics, isFalse);
+      disabled.file!.writeAsStringSync('{}');
+      final legacy = AppPreferences();
+      await legacy.boot();
+      expect(legacy.haptics, isTrue);
     } finally {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, null);

@@ -26,6 +26,7 @@ class PreparedEpisode {
     this.player, {
     DateTime? at,
     this.media,
+    this.source,
   }) : at = at ?? DateTime.now();
   final SourceChapter chapter;
   final int index;
@@ -33,6 +34,15 @@ class PreparedEpisode {
   final AbstractPlayer player;
   final DateTime at;
   final PlayerMedia? media;
+  final DataSource? source;
+}
+
+class ResolvedEpisode {
+  const ResolvedEpisode(this.chapter, this.index, this.content, this.source);
+  final SourceChapter chapter;
+  final int index;
+  final ChapterContent content;
+  final DataSource source;
 }
 
 /// Holds at most one paused player; ownership transfers on a matching next-episode switch.
@@ -148,6 +158,9 @@ class NextEpisodeBuffer {
 
   set status(String value) => _status = value;
   Completer<void>? _finished;
+  Completer<ResolvedEpisode?>? _resolution;
+  ResolvedEpisode? _resolved;
+  DateTime? _resolvedAt;
   static const _maxAge = Duration(minutes: 5);
   static String _identity(VideoPlayTarget target, PlayerKernel kernel) =>
       '${target.sourceId}|${target.itemId}|${target.chapterId}|${kernel.id}';
@@ -159,6 +172,8 @@ class NextEpisodeBuffer {
     AbstractPlayer? Function(PlayerKernel) create, {
     VideoQuality? currentQuality,
     int? currentHeight,
+    Future<void> Function(DataSource source, SourceChapter chapter, int index)?
+    preloadExtras,
   }) async {
     if (!MediaPreload.instance.video || MediaPreload.instance.clearing) return;
     final key = _identity(target, settings.kernel);
@@ -178,6 +193,9 @@ class NextEpisodeBuffer {
     _attempts++;
     _preparing = true;
     final finished = _finished = Completer<void>();
+    final resolution = _resolution = Completer<ResolvedEpisode?>();
+    _resolved = null;
+    _resolvedAt = null;
     final revision = ++_revision;
     final previous = _ready;
     _ready = null;
@@ -218,6 +236,16 @@ class NextEpisodeBuffer {
       );
       final uri = chosen?.url ?? SourcePlayback.contentAddress(content);
       if (content == null || uri == null || stale()) return;
+      _resolved = ResolvedEpisode(chapter, index, content, source);
+      _resolvedAt = _now();
+      resolution.complete(_resolved);
+      if (preloadExtras != null) {
+        unawaited(
+          token
+              .run(() => preloadExtras(source, chapter, index))
+              .catchError((Object _) {}),
+        );
+      }
       _qualityFloor = currentHeight ?? currentQuality?.resolutionRank ?? 0;
       _quality = chosen == null ? ' · 源未提供画质标签' : ' · ${chosen.label}';
       status = '地址已解析$_quality，正在准备播放器';
@@ -262,19 +290,21 @@ class NextEpisodeBuffer {
         instance,
         at: _now(),
         media: media,
+        source: source,
       );
       _loadingPlayer = null;
       player = null; // owned by _ready
     } catch (error) {
       LumeLog.info('[player] 下一集预加载未完成，切集时正常重试：$error');
     } finally {
+      if (!resolution.isCompleted) resolution.complete(null);
       if (identical(_loadingPlayer, player)) _loadingPlayer = null;
       if (player != null) await _dispose(player);
-      if (_ready == null && _key == key) {
+      if (!stale() && _ready == null && _key == key) {
         status = '预加载未完成，切集时重试';
         _retryAfter = _now().add(const Duration(seconds: 10));
       }
-      _preparing = false;
+      if (!stale()) _preparing = false;
       if (identical(_finished, finished)) _finished = null;
       if (!finished.isCompleted) finished.complete();
     }
@@ -296,6 +326,7 @@ class NextEpisodeBuffer {
       return null;
     }
     _ready = null;
+    _resolved = null;
     _key = null;
     _revision++;
     status = '等待当前集稳定后预载';
@@ -315,11 +346,39 @@ class NextEpisodeBuffer {
         try {
           await pending.future.timeout(wait);
         } on TimeoutException {
-          discard();
+          // Keep the same parse/load alive. The caller can reuse the resolved
+          // content even when a native player's first load is still pending.
         }
       }
     }
     return take(target, index, kernel);
+  }
+
+  Future<ResolvedEpisode?> resolvedWhenReady(
+    VideoPlayTarget target,
+    int index,
+    PlayerKernel kernel, {
+    Duration wait = const Duration(seconds: 10),
+  }) async {
+    final key = _identity(target, kernel);
+    if (_key != key || index != target.chapterIndex + 1) return null;
+    final resolution = _resolution;
+    final revision = _revision;
+    ResolvedEpisode? result = _resolved;
+    if (result == null && resolution != null) {
+      try {
+        result = await resolution.future.timeout(wait);
+      } on TimeoutException {
+        return null;
+      }
+    }
+    return revision == _revision &&
+            _key == key &&
+            result?.index == index &&
+            _resolvedAt != null &&
+            _now().difference(_resolvedAt!) <= _maxAge
+        ? result
+        : null;
   }
 
   void discard() {
@@ -332,6 +391,10 @@ class NextEpisodeBuffer {
 
   Future<void> clear() async {
     _revision++;
+    _preparing = false;
+    final finished = _finished;
+    _finished = null;
+    if (finished != null && !finished.isCompleted) finished.complete();
     _catalogRevision++;
     _catalogToken?.cancel();
     _preparationToken?.cancel();
@@ -344,6 +407,12 @@ class NextEpisodeBuffer {
     _retryAfter = null;
     _catalogRetryAfter = null;
     _key = null;
+    _resolved = null;
+    final resolution = _resolution;
+    _resolution = null;
+    if (resolution != null && !resolution.isCompleted) {
+      resolution.complete(null);
+    }
     status = '尚未预加载';
     final ready = _ready;
     _ready = null;

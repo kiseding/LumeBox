@@ -2,7 +2,7 @@ import '../../core/cache/source_response_cache.dart';
 import 'source_loading_surface.dart';
 import '../../core/util/source_load_profile.dart';
 
-import 'package:flutter/gestures.dart';
+import '../../shared/widgets/browse_category_swipe.dart';
 
 import 'dart:convert';
 
@@ -775,45 +775,17 @@ class _ExploreViewState extends State<ExploreView>
   Iterable<SourceFilterGroup> get _distinctFilterGroups =>
       _filterGroups.where((group) => !_duplicatesCategories(group));
 
-  double _categoryTravel = 0;
-  bool _acceptCategorySwipe(PointerEvent event) {
-    if (_categories.isEmpty || _loadingFirst || _switching || _searching) {
-      return false;
-    }
-    final box = context.findRenderObject();
-    if (box is! RenderBox || !box.hasSize) return false;
-    final x = box.globalToLocal(event.position).dx;
-    final edges = MediaQuery.systemGestureInsetsOf(context);
-    return x > edges.left + 32 && x < box.size.width - edges.right - 32;
-  }
-
-  void _finishCategorySwipe(DragEndDetails details) {
-    if (_categoryTravel.abs() < 64 || _loadingFirst || _switching) return;
-    final current = _categories.indexWhere(
-      (category) => category.id == _categoryId,
-    );
-    final next = current + (_categoryTravel < 0 ? 1 : -1);
-    _categoryTravel = 0;
-    if (next < -1 || next >= _categories.length) return;
-    _selectPrimaryCategory(next == -1 ? null : _categories[next].id);
-  }
-
-  Widget _categorySwipeBody() => RawGestureDetector(
+  Widget _categorySwipeBody() => BrowseCategorySwipe(
     key: const ValueKey('source-category-swipe'),
-    behavior: HitTestBehavior.opaque,
-    gestures: {
-      _CategorySwipeRecognizer:
-          GestureRecognizerFactoryWithHandlers<_CategorySwipeRecognizer>(
-            () => _CategorySwipeRecognizer(),
-            (recognizer) {
-              recognizer.acceptStart = _acceptCategorySwipe;
-              recognizer.onStart = (_) => _categoryTravel = 0;
-              recognizer.onUpdate = (details) =>
-                  _categoryTravel += details.primaryDelta ?? 0;
-              recognizer.onEnd = _finishCategorySwipe;
-              recognizer.onCancel = () => _categoryTravel = 0;
-            },
-          ),
+    enabled:
+        _categories.isNotEmpty && !_loadingFirst && !_switching && !_searching,
+    onStep: (step) {
+      final current = _categories.indexWhere(
+        (category) => category.id == _categoryId,
+      );
+      final next = current + step;
+      if (next < -1 || next >= _categories.length) return;
+      _selectPrimaryCategory(next == -1 ? null : _categories[next].id);
     },
     child: _buildBody(),
   );
@@ -1153,11 +1125,12 @@ class _ExploreViewState extends State<ExploreView>
       }
       setState(() {
         _page = page;
-        _hasMore = repeated ? false : result.hasMore;
+        _hasMore = !repeated && result.items.isNotEmpty && result.hasMore;
         _loadingMore = false;
         _loadingFirst = false;
         if (more) {
-          _items.addAll(result.items);
+          final ids = _items.map((item) => item.id).toSet();
+          _items.addAll(result.items.where((item) => ids.add(item.id)));
         } else {
           _items
             ..clear()
@@ -2284,12 +2257,4 @@ class _ExploreVisit {
   final List<SourceItem> items;
   final int page;
   final bool hasMore, home;
-}
-
-/// Interior drags switch categories; the outer edge recognizer keeps its drawer.
-class _CategorySwipeRecognizer extends HorizontalDragGestureRecognizer {
-  bool Function(PointerEvent)? acceptStart;
-  @override
-  bool isPointerAllowed(PointerEvent event) =>
-      (acceptStart?.call(event) ?? false) && super.isPointerAllowed(event);
 }

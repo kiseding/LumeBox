@@ -10,8 +10,7 @@ import 'package:lume_box/core/reading/reading.dart';
 import 'package:lume_box/core/session/section.dart';
 import 'package:lume_box/core/session/section_scope.dart';
 import 'package:lume_box/core/theme/lume_theme.dart';
-import 'package:lume_box/features/settings/settings_page.dart';
-import 'package:lume_box/features/video/player_kernel_picker.dart';
+import 'package:lume_box/features/video/player_settings_host.dart';
 import 'package:lume_box/features/video/player_kernel_section.dart';
 import 'package:lume_box/features/video/video_player_settings.dart';
 
@@ -73,35 +72,47 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('设置页内嵌逃生入口：与视频板块共用同一份内核列表', (tester) async {
+  testWidgets('从全局设置可以切回系统播放内核并写入视频库', (tester) async {
+    final store = await VideoPlayerSettingsStore.open();
+    store.save(
+      const PlayerSettings()
+          .copyWith(speed: 1.75)
+          .copyWith(kernel: PlayerKernel.mpv, speed: 2.5),
+    );
     await tester.binding.setSurfaceSize(const Size(900, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       MaterialApp(
         theme: LumeTheme.build(),
-        // 非 iOS 平台设置页是骨架；这里注入可用性以便断言内嵌区块。
-        home: const SettingsPage(runtimeAvailable: true),
+        // Use the production settings host with a controllable kernel catalog.
+        home: PlayerSettingsHost(
+          catalog: _FakeCatalog({PlayerKernel.avplayer, PlayerKernel.mpv}),
+        ),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('播放器内核 · 故障逃生入口'), findsNothing);
     expect(find.text('各模块独立设置'), findsNothing);
-    await tester.tap(find.text('阅读与播放'));
+    await tester.tap(find.text('默认播放内核'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('播放器设置'));
+    await tester.tap(find.text('AVPlayer'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('内核与网络'));
-    await tester.tap(find.text('内核与网络'));
+    expect(store.load().kernel, PlayerKernel.avplayer);
+    await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(
-      find.byType(PlayerKernelPicker),
-      findsOneWidget,
-      reason: '两处必须是同一个组件（列表长得一模一样）',
+    await tester.tap(
+      find.byKey(const ValueKey('global-player-category-playback')),
     );
-    for (final kernel in PlayerKernel.values) {
-      expect(find.text(kernel.label), findsOneWidget);
-    }
+    await tester.pumpAndSettle();
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 1.75);
+    final speed = find.widgetWithText(ChoiceChip, '2x');
+    await tester.ensureVisible(speed);
+    await tester.pumpAndSettle();
+    await tester.tap(speed);
+    await tester.pumpAndSettle();
+    expect(store.load().speed, 2);
+    expect(store.load().copyWith(kernel: PlayerKernel.mpv).speed, 2.5);
   });
 
   testWidgets('逃生切换：只改内核并写回视频板块的库；字幕不动，倍速按内核各记一份', (tester) async {

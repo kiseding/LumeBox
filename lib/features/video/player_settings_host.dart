@@ -9,6 +9,7 @@ import '../../core/session/section.dart';
 import 'danmaku/danmaku_settings.dart';
 import 'player_settings_page.dart';
 import 'video_player_settings.dart';
+import '../../shared/widgets/player_appearance_scope.dart';
 
 /// 播放器设置的独立入口（全局设置 → 播放器设置）。
 ///
@@ -71,8 +72,11 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
       if (!mounted) return;
       setState(() {
         _store = store;
+        _library = store.library;
         _settings = store.load();
+        _danmaku = DanmakuSettingsStore(store.library).load();
       });
+      store.library.settingsRevision.addListener(_sharedSettingsChanged);
     } catch (error, stackTrace) {
       LumeLog.error(error, stackTrace);
       if (!mounted) return;
@@ -123,13 +127,15 @@ class _PlayerSettingsHostState extends State<PlayerSettingsHost> {
         body: Center(child: CircularProgressIndicator(strokeWidth: 2.5)),
       );
     }
-    return PlayerSettingsPage(
-      focusCategory: widget.focusCategory,
-      settings: settings,
-      catalog: widget.catalog ?? const PlatformPlayerKernelCatalog(),
-      onChanged: _apply,
-      danmaku: _library == null ? null : _danmaku,
-      onDanmakuChanged: _applyDanmaku,
+    return PlayerAppearanceScope(
+      child: PlayerSettingsPage(
+        focusCategory: widget.focusCategory,
+        settings: settings,
+        catalog: widget.catalog ?? const PlatformPlayerKernelCatalog(),
+        onChanged: _apply,
+        danmaku: _library == null ? null : _danmaku,
+        onDanmakuChanged: _applyDanmaku,
+      ),
     );
   }
 }

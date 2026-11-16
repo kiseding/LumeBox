@@ -1,5 +1,10 @@
-/// Mobile preview and native smoke check. Does not change the shipping entry.
+/// Shared player appearances on Android; iOS native glass falls back to compatible material here.
 library;
+
+import 'dart:typed_data';
+
+import 'package:path_provider/path_provider.dart';
+import 'package:lume_box/core/security/local_cipher.dart';
 
 import 'dart:convert';
 
@@ -33,10 +38,15 @@ const fixtureURL = String.fromEnvironment(
 );
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final directory = await getApplicationSupportDirectory();
+  // Debug-only isolated preview data; no production credentials.
+  // ignore: invalid_use_of_visible_for_testing_member
+  LocalCipher.configurePreview(directory.path, Uint8List(32));
   await AppPreferences.instance.boot();
   await FloatingModules.instance.boot();
   await FrostedSettings.instance.boot();
-  await ReadingLibrary.open(Section.video);
+  final library = await ReadingLibrary.open(Section.video);
+  library.setSetting('video.player.autoHideControls', 'false');
   runApp(
     MaterialApp(
       debugShowCheckedModeBanner: false,

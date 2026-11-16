@@ -180,7 +180,7 @@ class AggregateSearch {
       ),
     );
     void publish() {
-      if (completed == 0 || completed == enabled.length) {
+      if (completed <= 1 || completed == enabled.length) {
         publishTimer?.cancel();
         publishTimer = null;
         if (parent?.isCancelled != true) emit();
@@ -839,8 +839,27 @@ class _SearchModeSheet extends StatefulWidget {
 class _SearchModeSheetState extends State<_SearchModeSheet> {
   late SearchMode _picked = widget.current;
   SearchSourceFilter _filter = const SearchSourceFilter();
+  final _siteQuery = TextEditingController();
   List<SourceDescriptor> get _visible =>
       widget.sources.where(_filter.matches).toList();
+  List<SourceDescriptor> get _listed {
+    final query = _siteQuery.text.trim().toLowerCase();
+    return _visible
+        .where(
+          (source) =>
+              query.isEmpty ||
+              source.name.toLowerCase().contains(query) ||
+              source.id.toLowerCase().contains(query),
+        )
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    _siteQuery.dispose();
+    super.dispose();
+  }
+
   Set<String> get _effective => _picked == SearchMode.single
       ? _selected
       : _visible
@@ -939,14 +958,30 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                             child: Row(
                               children: [
                                 Expanded(
-                                  child: Text(
-                                    '已选 ${_effective.length}/${_visible.length} 个站点',
+                                  child: TextField(
+                                    key: const Key('search-site-query'),
+                                    controller: _siteQuery,
+                                    onChanged: (_) => setState(() {}),
+                                    decoration: InputDecoration(
+                                      labelText:
+                                          '已选 ${_effective.length}/${_visible.length} 个站点',
+                                      hintText: '查找站点名称或 ID',
+                                      isDense: true,
+                                      suffixIcon: _siteQuery.text.isEmpty
+                                          ? null
+                                          : IconButton(
+                                              tooltip: '清除站点查找',
+                                              onPressed: () =>
+                                                  setState(_siteQuery.clear),
+                                              icon: const Icon(Icons.close),
+                                            ),
+                                    ),
                                   ),
                                 ),
                                 TextButton(
                                   onPressed: () => setState(
                                     () => _selected.addAll(
-                                      _visible.map((source) => source.id),
+                                      _listed.map((source) => source.id),
                                     ),
                                   ),
                                   child: const Text('全选'),
@@ -954,7 +989,7 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                                 TextButton(
                                   onPressed: () => setState(
                                     () => _selected.removeAll(
-                                      _visible.map((s) => s.id),
+                                      _listed.map((s) => s.id),
                                     ),
                                   ),
                                   child: const Text('清空'),
@@ -972,7 +1007,12 @@ class _SearchModeSheetState extends State<_SearchModeSheet> {
                               padding: EdgeInsets.all(16),
                               child: Text('当前分类没有可用站点，请切换内容或源类型'),
                             ),
-                          for (final source in _visible)
+                          if (_visible.isNotEmpty && _listed.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text('没有匹配的站点，请修改名称或 ID'),
+                            ),
+                          for (final source in _listed)
                             CheckboxListTile(
                               key: ValueKey('search-site-${source.id}'),
                               dense: true,

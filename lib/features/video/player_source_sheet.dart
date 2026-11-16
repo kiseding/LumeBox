@@ -127,6 +127,7 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
 
   Future<void> _select(int index, {bool quality = false, String? line}) async {
     if (_busy) return;
+    final route = ModalRoute.of(context);
     setState(() {
       _busy = true;
       _pending = quality ? null : index;
@@ -142,7 +143,9 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
       } else {
         ok = await widget.onSelectEpisode?.call(index) ?? false;
       }
-      if (!mounted) return;
+      // A dismissed drawer remains mounted during its exit animation. A late
+      // selection must not pop the player or a newer popup beneath/above it.
+      if (!mounted || route?.isCurrent == false) return;
       if (ok) {
         Navigator.of(context).pop();
         return;
@@ -688,6 +691,49 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
     );
   }
 
+  PopupMenuItem<String> _menuEntry(
+    String value,
+    String label,
+    IconData icon, {
+    bool selected = false,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return PopupMenuItem<String>(
+      value: value,
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 15,
+            color: selected ? colors.primary : colors.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                color: selected ? colors.primary : colors.onSurface,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          SizedBox(
+            width: 13,
+            child: selected
+                ? Icon(Icons.check_rounded, size: 13, color: colors.primary)
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 主要分类保持文字可见，低频工具收进更多菜单。
   Widget _buildToolbar() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -733,6 +779,20 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
               ),
             ),
           ),
+          if (!_qualityOnly &&
+              _tab == PlayerSourceTab.episodes &&
+              _chapterCount > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                '共 $_chapterCount 集',
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           if (!_qualityOnly && _tab == PlayerSourceTab.episodes)
             _toolIcon(
               Icons.my_location,
@@ -741,6 +801,19 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
             ),
           PopupMenuButton<String>(
             tooltip: '更多',
+            useRootNavigator: true,
+            constraints: const BoxConstraints(minWidth: 176, maxWidth: 176),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            menuPadding: EdgeInsets.zero,
+            color: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            elevation: 6,
+            shadowColor: Colors.black.withValues(alpha: .12),
+            position: PopupMenuPosition.under,
+            offset: const Offset(0, 4),
             enabled: !_busy,
             onSelected: (value) {
               if (value == 'info') {
@@ -770,48 +843,49 @@ class _PlayerSourceSheetState extends State<PlayerSourceSheet> {
                 if (_scroll.hasClients) _scroll.jumpTo(0);
               }
             },
-            itemBuilder: (_) => [
-              if (!_qualityOnly && _tab == PlayerSourceTab.episodes) ...[
-                for (final view in PlayerEpisodeView.values)
-                  CheckedPopupMenuItem(
-                    value: 'view:${view.name}',
-                    checked: _view == view,
-                    child: Text('视图：${view.label}'),
-                  ),
-                PopupMenuItem(
-                  value: 'reverse',
-                  child: Text(_reverse ? '倒序' : '正序'),
-                ),
-                if (_chapterCount > 50)
-                  for (var i = 0; i < (_chapterCount / 50).ceil(); i++)
-                    CheckedPopupMenuItem(
-                      value: 'segment:$i',
-                      checked: _segment == i,
-                      child: Text(_segmentLabel(i)),
+            itemBuilder: (_) => videoGlassMenuEntries<String>(
+              [
+                if (!_qualityOnly && _tab == PlayerSourceTab.episodes) ...[
+                  for (final view in PlayerEpisodeView.values)
+                    _menuEntry(
+                      'view:${view.name}',
+                      '视图：${view.label}',
+                      switch (view) {
+                        PlayerEpisodeView.grid => Icons.grid_view_rounded,
+                        PlayerEpisodeView.list => Icons.view_list_rounded,
+                        PlayerEpisodeView.cover => Icons.photo_library_outlined,
+                      },
+                      selected: _view == view,
                     ),
-                if (_chapterCount > 0)
-                  const PopupMenuItem(value: 'jump', child: Text('跳转到第几集…')),
-                const PopupMenuDivider(),
+                  const PopupMenuDivider(height: 6),
+                  _menuEntry(
+                    'reverse',
+                    _reverse ? '倒序' : '正序',
+                    Icons.swap_vert_rounded,
+                  ),
+                  if (_chapterCount > 50)
+                    for (var i = 0; i < (_chapterCount / 50).ceil(); i++)
+                      _menuEntry(
+                        'segment:$i',
+                        _segmentLabel(i),
+                        Icons.format_list_numbered_rounded,
+                        selected: _segment == i,
+                      ),
+                  if (_chapterCount > 0)
+                    _menuEntry('jump', '跳转到第几集…', Icons.fast_forward_rounded),
+                  const PopupMenuDivider(height: 6),
+                ],
+                _menuEntry('info', '播放信息', Icons.info_outline_rounded),
               ],
-              const PopupMenuItem(value: 'info', child: Text('播放信息')),
-            ],
+              radius: 12,
+              materialOpacity: VideoGlassSurface.panelOpacity,
+              verticalPadding: 4,
+              dark: Theme.of(context).brightness == Brightness.dark,
+            ),
             icon: const Icon(Icons.more_horiz),
           ),
         ],
       ),
-      if (!_qualityOnly &&
-          _tab == PlayerSourceTab.episodes &&
-          _chapterCount > 0)
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            '共 $_chapterCount 集',
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
     ],
   );
 

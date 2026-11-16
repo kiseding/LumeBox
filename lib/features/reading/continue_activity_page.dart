@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/cat/cat_data_source.dart';
+import '../../core/cat/cat_service.dart';
 import '../../core/reading/reading.dart';
 import '../../core/session/section.dart';
 import '../../core/source/source.dart';
@@ -11,6 +13,8 @@ import '../comic/comic_reader_page.dart';
 import '../novel/novel_reader_page.dart';
 import '../video/video_detail_page.dart';
 import '../video/video_player_page.dart';
+import '../video/video_download_center.dart';
+import '../video/video_play_target.dart';
 import '../video/video_resume_match.dart';
 import '../video/playback_entry_preparation.dart';
 import '../media/media_resource_router.dart';
@@ -49,8 +53,12 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
   String? error;
   String? opening;
   bool loading = true;
-  SourceManager manager(Section section) =>
-      widget.managers[section] ?? LumeSources.manager(section);
+  SourceManager manager(Section section, String sourceId) =>
+      widget.managers[section] ??
+      (section == Section.cat
+          ? CatAggregateSourceManager(CatService.instance,
+              kind: sourceId.split('|').elementAtOrNull(1))
+          : LumeSources.manager(section));
   int generation = 0;
   @override
   void initState() {
@@ -159,7 +167,7 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
     ReadingLibrary library,
     ReadingProgress? progress, {
     String? resumeTitle,
-    bool differentSource = false,
+    bool differentItem = false,
   }) async {
     if (!mounted) return;
     await Navigator.push(
@@ -168,10 +176,10 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
         builder: (context) => VideoDetailPage(
           source: source,
           sourceId: source.id,
-          manager: manager(library.section),
+          manager: manager(library.section, source.id),
           item: item,
           library: library,
-          initialChapterId: differentSource ? null : progress?.chapterId,
+          initialChapterId: differentItem ? null : progress?.chapterId,
           resumeRequest: progress is VideoProgress
               ? VideoResumeRequest(
                   title: resumeTitle ?? item.title,
@@ -181,16 +189,18 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
                   duration: progress.duration,
                 )
               : null,
-          onPlay: (media, target, qualities, prepared) async {
+          onPlay: (origin, media, target, qualities, prepared) async {
+            final context = origin.context;
+            final route = ModalRoute.of(context);
             final entering =
                 prepared ??
                 await preparePlaybackRoute(
                   media,
                   library: library,
                   target: target,
-                  stillActive: () => context.mounted,
+                  stillActive: () => context.mounted && route?.isCurrent != false,
                 );
-            if (!context.mounted) {
+            if (!context.mounted || route?.isCurrent == false) {
               await entering?.discard();
               return;
             }
@@ -202,9 +212,9 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
                 pageBuilder: (_, _, _) => VideoPlayerPage(
                   media: media,
                   target: target,
-                  source: source,
-                  sourceId: source.id,
-                  sourceManager: manager(library.section),
+                  source: origin.source,
+                  sourceId: target.sourceId,
+                  sourceManager: manager(library.section, target.sourceId),
                   library: library,
                   qualities: qualities,
                   prelaunch: entering,
@@ -219,32 +229,43 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
 
   Future<void> alternative(_Activity row) async {
     final item = row.item!;
+    final sources = manager(row.section, item.sourceId);
+    var latestSelection = 0;
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => SearchResultsPage(
+        builder: (searchContext) => SearchResultsPage(
           section: row.section,
           keyword: item.title,
           mode: SearchMode.aggregate,
+          manager: sources,
           onOpenItem: (selection) async {
+            final route = ModalRoute.of(searchContext);
+            final request = ++latestSelection;
+            final activeGeneration = generation;
+            final messenger = ScaffoldMessenger.of(searchContext);
+            bool active() => mounted && route?.isCurrent == true && request == latestSelection &&
+                generation == activeGeneration;
             try {
-              final source = await manager(row.section)
+              final source = await sources
                   .open(selection.sourceId)
                   .timeout(const Duration(seconds: 15));
-              if (source != null) {
-                await detail(
-                  source,
-                  selection.item,
-                  await ReadingLibrary.open(row.section),
-                  row.progress,
-                  resumeTitle: row.item?.title,
-                  differentSource: selection.sourceId != row.item?.sourceId,
-                );
-              }
+              if (!active()) return;
+              if (source == null) throw StateError('来源不可用');
+              final library = await ReadingLibrary.open(row.section);
+              if (!active()) return;
+              await detail(
+                source,
+                selection.item,
+                library,
+                row.progress,
+                resumeTitle: item.title,
+                differentItem: selection.sourceId != item.sourceId ||
+                    selection.item.id != item.itemId,
+              );
             } catch (_) {
-              if (mounted) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('来源暂时无法打开')));
+              if (active()) {
+                messenger.showSnackBar(const SnackBar(content: Text('来源暂时无法打开')));
               }
             }
           },
@@ -258,19 +279,62 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
     final key = row.resource?.id ?? row.item!.identity;
     setState(() => opening = key);
     final activeGeneration = generation;
+    final route = ModalRoute.of(context);
+    bool active() => activeGeneration == generation && route?.isCurrent != false;
     try {
       if (row.resource != null) {
         await openMediaResource(context, row.resource!);
       } else {
         final item = row.item!, progress = row.progress!;
         final library = await ReadingLibrary.open(row.section);
-        if (!mounted || activeGeneration != generation) return;
-        final source = await manager(row.section)
+        if (!mounted || !active()) return;
+        if (progress is VideoProgress) {
+          final file = await VideoDownloadCenter.instance.playbackIfAvailable(
+            item.sourceId,
+            item.itemId,
+            progress.chapterId,
+            section: row.section,
+          );
+          if (!mounted || !active()) {
+            await file?.close();
+            return;
+          }
+          if (file != null) {
+            try {
+              await Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => VideoPlayerPage(
+                    media: file.media(item.title),
+                    library: library,
+                    target: VideoPlayTarget(
+                      sourceId: item.sourceId,
+                      itemId: item.itemId,
+                      title: item.title,
+                      cover: item.cover,
+                      chapterIndex: progress.chapterIndex,
+                      chapterId: progress.chapterId,
+                      chapterTitle: progress.chapterTitle,
+                    ),
+                    sourceManager: manager(row.section, item.sourceId),
+                  ),
+                ),
+              );
+            } finally {
+              await file.close();
+            }
+            return;
+          }
+        }
+        final source = await manager(row.section, item.sourceId)
             .open(item.sourceId)
             .timeout(const Duration(seconds: 15));
+        if (!mounted || !active()) return;
         if (source == null) throw StateError('来源不可用');
-        if (source.section != row.section) throw StateError('来源板块不匹配');
-        if (!mounted || activeGeneration != generation) return;
+        if (source.section != row.section &&
+            !(row.section == Section.cat && source is CatDataSource)) {
+          throw StateError('来源板块不匹配');
+        }
         final target = ReadingTarget(
           sourceId: item.sourceId,
           itemId: item.itemId,
@@ -282,7 +346,7 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
           final chapters = await source
               .chapters(item.itemId)
               .timeout(const Duration(seconds: 15));
-          if (!mounted || activeGeneration != generation) return;
+          if (!mounted || !active()) return;
           final index = chapters.indexWhere((c) => c.id == progress.chapterId);
           if (index < 0) {
             await detail(
@@ -291,7 +355,7 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
               library,
               progress,
             );
-          } else if (mounted) {
+          } else {
             await Navigator.push(
               context,
               MaterialPageRoute<void>(
@@ -329,7 +393,7 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
         }
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && active()) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('原来源暂不可用，记录已保留'),
@@ -345,7 +409,7 @@ class _ContinueActivityPageState extends State<ContinueActivityPage>
     } finally {
       if (mounted) {
         setState(() => opening = null);
-        await load();
+        if (active()) await load();
       }
     }
   }

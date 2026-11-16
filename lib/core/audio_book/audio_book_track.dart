@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
+
 import '../media/media_library.dart';
 
 class AudioBookFailure implements Exception {
-  const AudioBookFailure(this.message);
+  const AudioBookFailure(this.message, {this.retryChapter});
   final String message;
+  final int? retryChapter;
   @override
   String toString() => message;
 }
@@ -20,10 +23,32 @@ class AudioBookTrack {
     required this.episode,
     required this.album,
     this.cover,
+    this.artist,
+    this.music = false,
     this.resolve,
+    this.initialMedia,
   });
   final String id, album;
-  final String? cover;
+  final String? cover, artist;
+  final bool music;
   final ResourceEpisode episode;
   final Future<ResolvedAudio> Function()? resolve;
+  final ResolvedAudio? initialMedia;
+
+  bool canReuseFor(AudioBookTrack next) {
+    if (identical(this, next)) return true;
+    final incoming = next.initialMedia;
+    return id == next.id &&
+        album == next.album &&
+        cover == next.cover &&
+        artist == next.artist &&
+        music == next.music &&
+        episode.title == next.episode.title &&
+        episode.url == next.episode.url &&
+        mapEquals(episode.headers, next.episode.headers) &&
+        (resolve == null) == (next.resolve == null) &&
+        (incoming == null ||
+            initialMedia?.url == incoming.url &&
+                mapEquals(initialMedia?.headers, incoming.headers));
+  }
 }

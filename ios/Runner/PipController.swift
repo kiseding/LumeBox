@@ -4,6 +4,34 @@ import Flutter
 import UIKit
 import Security
 
+// BEGIN PiP AV frame binding
+/// Owns exactly one item output; the PiP display layer is owned independently.
+final class PipAVFrameBinding {
+  private(set) var player: AVPlayer?
+  private(set) var item: AVPlayerItem?
+  private(set) var output: AVPlayerItemVideoOutput?
+
+  @discardableResult
+  func bind(_ player: AVPlayer) -> Bool {
+    if self.player === player, item === player.currentItem { return false }
+    reset()
+    self.player = player
+    guard let item = player.currentItem else { return true }
+    let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+      kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+    ])
+    item.add(output)
+    self.item = item; self.output = output
+    return true
+  }
+
+  func reset() {
+    if let item, let output { item.remove(output) }
+    output = nil; item = nil; player = nil
+  }
+}
+// END PiP AV frame binding
+
 /// 画中画的原生实现（iOS）。
 ///
 /// 契约见 Dart 侧 `MethodChannelPipBackend`：
@@ -34,17 +62,21 @@ final class PipController: NSObject {
   private var avObserver: NSObjectProtocol?
   private var paused = false
   private var starting = false
+  private var stopping = false
+  private var transitioningMedia = false
+  private var waitingForAvFrame = false
   private var playbackRate: Float = 1
   private var durationSeconds: Double = 0
 
   /// 帧泵：把 Dart 送来的 BGRA 帧包成 CMSampleBuffer 上屏。
   private let framePump = PipFramePump()
   private var avPlayer: AVPlayer?
-  private var avOutput: AVPlayerItemVideoOutput?
-  private var avOutputItem: AVPlayerItem?
+  private let avFrames = PipAVFrameBinding()
   private var avTimer: Timer?
   private var avUsesFrames = false
+  private var avLastInlineFrame: CFTimeInterval = 0
   private var avTransform = CGAffineTransform.identity
+  private var teardownResults: [FlutterResult] = []
 
 
   /// 帧通道：与 Dart 侧 `PipFrameSource` 的帧提交一一对应。
@@ -126,20 +158,16 @@ final class PipController: NSObject {
       case "submitFrame":
         self.handleFrame(call, result: result)
       case "teardown":
-        self.clearExternalSource()
-        self.stopAvFrames()
-        self.avPlayer = nil
-        self.inlineAvLayer = nil
-        self.avUsesFrames = false
-        self.controller?.delegate = nil
         self.controller?.canStartPictureInPictureAutomaticallyFromInline = false
-        self.controller?.stopPictureInPicture()
-        self.framePump.teardown()
-        self.frameHost?.removeFromSuperview()
-        self.frameHost = nil
-        self.frameLayer = nil
-        self.controller = nil
-        result(nil)
+        if self.controller?.isPictureInPictureActive == true || self.starting || self.stopping {
+          // AVKit retains the source during its return animation. Releasing
+          // the layer here races that animation and may crash the process.
+          self.teardownResults.append(result)
+          self.controller?.stopPictureInPicture()
+        } else {
+          self.teardownFrames()
+          result(nil)
+        }
       case "stats":
         result([
           "received": self.framePump.receivedFrames,
@@ -151,13 +179,38 @@ final class PipController: NSObject {
     }
   }
 
+  private func teardownFrames() {
+    transitioningMedia = false; waitingForAvFrame = false
+    clearExternalSource()
+    stopAvFrames()
+    avPlayer = nil; inlineAvLayer = nil; avUsesFrames = false
+    controller?.delegate = nil; controller = nil
+    framePump.teardown()
+    frameHost?.removeFromSuperview(); frameHost = nil; frameLayer = nil
+    let callbacks = teardownResults; teardownResults.removeAll()
+    callbacks.forEach { $0(nil) }
+  }
+
   /// 收一帧：BGRA 字节 → CMSampleBuffer → 显示层。
   // The engine owns these layers: never reparent them or clear their player.
   func attachExternal(playerLayer: AVPlayerLayer?, sampleLayer: AVSampleBufferDisplayLayer?,
                       active: @escaping (Bool) -> Void,
                       timeRange: @escaping () -> CMTimeRange,
                       isPaused: @escaping () -> Bool) -> Bool {
-    guard controller?.isPictureInPictureActive != true else { return false }
+    guard !stopping else { return false }
+    if let controller, controller.isPictureInPictureActive || starting {
+      let source: AVPictureInPictureController.ContentSource
+      if let layer = playerLayer, layer.isReadyForDisplay {
+        source = .init(playerLayer: layer)
+      } else if let layer = sampleLayer, layer.status == .rendering {
+        source = .init(sampleBufferDisplayLayer: layer, playbackDelegate: self)
+      } else { return false }
+      clearExternalSource()
+      controller.contentSource = source
+      externalActive = active; externalTimeRange = timeRange; externalPaused = isPaused
+      active(true)
+      return true
+    }
     clearExternalSource()
     controller?.delegate = nil
     controller?.stopPictureInPicture()
@@ -195,6 +248,7 @@ final class PipController: NSObject {
   }
 
   private func handleFrame(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard teardownResults.isEmpty else { result(false); return }
     if avPlayer != nil { stopAvFrames(); avPlayer = nil; inlineAvLayer = nil; avUsesFrames = false }
 
     guard let args = call.arguments as? [String: Any],
@@ -234,6 +288,7 @@ final class PipController: NSObject {
       stop(result: result)
     case "updateState":
       let args = call.arguments as? [String: Any] ?? [:]
+      transitioningMedia = args["transitioning"] as? Bool ?? false
       if let rate = args["playbackRate"] as? Double, rate.isFinite, rate > 0 { playbackRate = Float(rate) }
       paused = !(((args["playing"] as? Bool) ?? false) || starting)
       framePump.danmaku.playing = !paused
@@ -287,71 +342,75 @@ final class PipController: NSObject {
   private func attach(player: AVPlayer, inlineLayer: AVPlayerLayer? = nil) {
     if #available(iOS 15.0, *) { player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible }
     let visibleLayer = inlineLayer ?? (avPlayer === player ? inlineAvLayer : nil)
-    // A texture player has no inline AVPlayerLayer. Use its decoded frames,
-    // including when danmaku is off, instead of attaching a competing layer.
-    let needsFrames = framePump.danmaku.enabled || visibleLayer == nil
-    if avPlayer === player && inlineAvLayer === visibleLayer && avUsesFrames == needsFrames && controller != nil { return }
-    if controller?.isPictureInPictureActive == true { return }
-    stopAvFrames()
-    avPlayer = player
-    inlineAvLayer = visibleLayer
-    avUsesFrames = needsFrames
-    if needsFrames, let item = player.currentItem {
-      controller?.delegate = nil
-      controller?.stopPictureInPicture()
-      frameHost?.removeFromSuperview()
-      framePump.ensureDisplayLayer()
-      if let layer = framePump.displayLayer { attach(frameLayer: layer) }
-      let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
-      // Resolve track metadata once, never synchronously on every frame.
-      Task { @MainActor [weak self, weak item] in
-        guard let item else { return }
-        do {
-          let tracks = try await item.asset.loadTracks(withMediaType: .video)
-          guard let track = tracks.first else { return }
-          let transform = try await track.load(.preferredTransform)
-          guard let self, self.avOutputItem === item else { return }
-          self.avTransform = transform
-        } catch { /* PiP can use the untransformed priming frame. */ }
-      }
-      item.add(output)
-      avOutput = output
-      avOutputItem = item
-      startAvFrames()
+    // Keep one sample-buffer source for the entire playlist. An inline layer
+    // belongs to a plugin player that is disposed at each episode boundary.
+    if avPlayer === player && avFrames.item === player.currentItem && avUsesFrames && controller != nil { return }
+    guard !stopping else { return }
+    if controller?.isPictureInPictureActive == true || starting {
+      guard avUsesFrames else { return }
+      avPlayer = player; inlineAvLayer = visibleLayer
+      bindAvFrames(player); startAvFrames()
       return
     }
-
+    stopAvFrames()
+    avPlayer = player; inlineAvLayer = visibleLayer; avUsesFrames = true
+    guard player.currentItem != nil else { return }
     controller?.delegate = nil
     controller?.stopPictureInPicture()
     frameHost?.removeFromSuperview()
-    frameLayer = nil
-    frameHost = nil
-    guard let visibleLayer else { return }
-    controller = AVPictureInPictureController(playerLayer: visibleLayer)
-    controller?.delegate = self
-    controller?.canStartPictureInPictureAutomaticallyFromInline = true
+    framePump.ensureDisplayLayer()
+    if let layer = framePump.displayLayer { attach(frameLayer: layer) }
+    bindAvFrames(player); startAvFrames()
   }
 
   private func stopAvFrames() {
+    waitingForAvFrame = false
     avTimer?.invalidate(); avTimer = nil
-    if let output = avOutput, let item = avOutputItem { item.remove(output) }
-    avOutput = nil; avOutputItem = nil
+    avLastInlineFrame = 0
+    avFrames.reset()
     avTransform = .identity
+  }
+
+  private func bindAvFrames(_ player: AVPlayer) {
+    guard avFrames.bind(player) else { return }
+    waitingForAvFrame = true
+    guard let item = avFrames.item else { return }
+    avTransform = .identity
+    // Metadata completion from the previous episode cannot rotate the new one.
+    Task { @MainActor [weak self, weak item] in
+      guard let item else { return }
+      do {
+        let tracks = try await item.asset.loadTracks(withMediaType: .video)
+        guard let track = tracks.first else { return }
+        let transform = try await track.load(.preferredTransform)
+        guard let self, self.avFrames.item === item else { return }
+        self.avTransform = transform
+      } catch { /* Keep the untransformed frame until metadata becomes available. */ }
+    }
   }
 
   private func startAvFrames() {
     guard avUsesFrames, avTimer == nil else { return }
     avTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-      guard let self = self, let player = self.avPlayer, let output = self.avOutput else { return }
+      guard let self = self, let player = self.avPlayer else { return }
+      if self.avFrames.item !== player.currentItem { self.bindAvFrames(player) }
+      guard let output = self.avFrames.output else { return }
+      if self.controller?.isPictureInPictureActive != true && !self.starting {
+        let now = CACurrentMediaTime()
+        guard now - self.avLastInlineFrame >= 0.2 else { return }
+        self.avLastInlineFrame = now
+      }
       let time = player.currentTime()
       guard time.isValid, time.seconds.isFinite,
             let pixels = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) else { return }
       self.framePump.danmaku.playing = player.rate > 0
-      self.framePump.submit(buffer: pixels, timestampMs: Int(time.seconds * 1000), transform: self.avTransform)
-      // Inline preparation only needs a priming frame; resume the pump on PiP start.
-      if self.controller?.isPictureInPictureActive != true && !self.starting {
-        self.avTimer?.invalidate(); self.avTimer = nil
+      let accepted = self.framePump.submit(buffer: pixels, timestampMs: Int(time.seconds * 1000), transform: self.avTransform)
+      if accepted && self.waitingForAvFrame {
+        self.waitingForAvFrame = false
+        self.controller?.invalidatePlaybackState()
       }
+      // Keep this source live while inline, too. A single stale priming frame
+      // can make automatic PiP unavailable when the user swipes home later.
     }
   }
 
@@ -434,7 +493,12 @@ extension PipController: FlutterStreamHandler {
 // MARK: - AVPictureInPictureControllerDelegate
 
 extension PipController: AVPictureInPictureControllerDelegate {
+  func pictureInPictureControllerWillStopPictureInPicture(_ controller: AVPictureInPictureController) {
+    guard self.controller === controller else { return }
+    stopping = true
+  }
   func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+    guard self.controller === controller else { return }
     externalActive?(true)
     starting = true
     startAvFrames()
@@ -445,10 +509,14 @@ extension PipController: AVPictureInPictureControllerDelegate {
     _ controller: AVPictureInPictureController,
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
   ) {
+    guard self.controller === controller else { completionHandler(false); return }
+    stopping = true
     emit(kind: "restored", message: nil)
     completionHandler(true)
   }
   func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+    guard self.controller === controller else { return }
+    if !teardownResults.isEmpty { controller.stopPictureInPicture(); return }
     starting = false
     paused = false
     framePump.danmaku.playing = true
@@ -461,8 +529,11 @@ extension PipController: AVPictureInPictureControllerDelegate {
   }
 
   func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+    guard self.controller === controller else { return }
     externalActive?(false)
     starting = false
+    stopping = false
+    if !teardownResults.isEmpty { teardownFrames() }
     emit(kind: "exited", message: nil)
   }
 
@@ -470,8 +541,11 @@ extension PipController: AVPictureInPictureControllerDelegate {
     _ controller: AVPictureInPictureController,
     failedToStartPictureInPictureWithError error: Error
   ) {
+    guard self.controller === controller else { return }
     externalActive?(false)
     starting = false
+    stopping = false
+    if !teardownResults.isEmpty { teardownFrames() }
     emit(kind: "failed", message: error.localizedDescription)
   }
 }
@@ -523,10 +597,8 @@ extension PipController: AVPictureInPictureSampleBufferPlaybackDelegate {
     _ controller: AVPictureInPictureController
   ) -> CMTimeRange {
     if let externalTimeRange { return externalTimeRange() }
-    if durationSeconds > 0 {
-      return CMTimeRange(start: .zero, duration: CMTime(seconds: durationSeconds, preferredTimescale: 1000))
-    }
-    return CMTimeRange(start: .negativeInfinity, duration: .positiveInfinity)
+    return framePump.playbackRange(duration: durationSeconds,
+      transitioning: transitioningMedia || waitingForAvFrame)
   }
 
   func pictureInPictureControllerIsPlaybackPaused(
