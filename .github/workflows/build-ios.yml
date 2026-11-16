@@ -210,15 +210,32 @@ jobs:
         if: ${{ inputs.typecheck_only != true }}
         run: bash tool/check_offline_remux.sh
 
-      - name: 打包未签名 IPA
+      - name: 打包未签名 IPA（顺带剥离 NodeMobile 本地符号）
         if: ${{ inputs.typecheck_only != true }}
         run: |
           set -euo pipefail
+          # nodejs-mobile 的官方 release 保留着 38 万条本地符号（约 13 MiB），
+          # 设备运行用不到。strip -x 只删本地符号，导出符号和 JS 侧调用不受影响。
+          strip_node() {
+            local bin="$1"
+            if [ ! -f "$bin" ]; then
+              echo "未找到 NodeMobile，跳过符号剥离"
+              return 0
+            fi
+            local before=$(wc -c < "$bin")
+            /usr/bin/strip -x "$bin"
+            local after=$(wc -c < "$bin")
+            echo "NodeMobile 符号剥离：$((before/1048576)) MiB -> $((after/1048576)) MiB"
+          }
           mkdir -p out
+          rm -rf out/Payload
           EXISTING=$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1 || true)
           if [ -n "${EXISTING}" ]; then
             echo "使用 flutter 直接产出的 IPA：${EXISTING}"
-            cp "${EXISTING}" out/LumeBox-unsigned.ipa
+            unzip -q "${EXISTING}" -d out
+            strip_node "out/Payload/Runner.app/Frameworks/NodeMobile.framework/NodeMobile"
+            rm -f out/LumeBox-unsigned.ipa
+            (cd out && zip -qry LumeBox-unsigned.ipa Payload)
           else
             # --no-codesign 只保证产出 .xcarchive：从 archive 里的 Runner.app 现场装成 IPA。
             APP="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
@@ -229,8 +246,9 @@ jobs:
               ls -R build/ios 2>/dev/null | head -50 || true
               exit 1
             fi
-            rm -rf out/Payload && mkdir -p out/Payload
+            mkdir -p out/Payload
             cp -R "${APP}" out/Payload/
+            strip_node "out/Payload/Runner.app/Frameworks/NodeMobile.framework/NodeMobile"
             (cd out && zip -qry LumeBox-unsigned.ipa Payload)
           fi
           echo "产物："
