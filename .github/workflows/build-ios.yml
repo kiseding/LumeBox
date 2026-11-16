@@ -100,9 +100,11 @@ jobs:
   build-ipa:
     if: ${{ inputs.models_only != true && inputs.remux_only != true && inputs.native_video_only != true }}
     name: ${{ inputs.typecheck_only && 'Swift and simulator checks (no IPA)' || 'Build unsigned IPA' }}
-    # macos-latest 目前指向 macos-26-arm64，高峰期排队极易超过 15 分钟被直接
-    # 取消（steps 为空、runner 未分配）。macos-15 是独立池子，命中率明显更高。
-    runs-on: macos-15
+    # arm64 池子（macos-latest = macos-26-arm64 / macos-15）在欧美高峰时段
+    # 长期排不到机器：job 入队满 15 分钟仍无 runner，被 GitHub 直接 cancelled。
+    # macos-26-intel 与 macos-26-arm64 同镜像同 Xcode，只是独立资源池；
+    # 构建慢一些，但 60 分钟超时足够。之后可改回 arm64 提速。
+    runs-on: macos-26-intel
     timeout-minutes: 60
     env:
       # Match the checked-in lockfile source and exact tested versions.
