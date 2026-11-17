@@ -12,17 +12,25 @@
 #
 # 2) 为什么现在只出 debug 包
 #    release / profile 需要 AOT，而 AOT 生成器（gen_snapshot.exe）必须与
-#    libflutter.so 里的 Dart VM 同版本。3.47.9-ohos 批次只发布了 darwin-x64
-#    的 gen_snapshot（Mach-O 实为 arm64），OBS 上 windows-x64 那份还是 3.44.9
-#    时代的旧货——实测 `gen_snapshot.exe --version` 报 Dart 3.12.2，而引擎是
-#    3.13.x，拿它做 AOT 会产出「能装、一启动就 SIGSEGV」的 HAP（报
-#    VM snapshot invalid）。debug 走 JIT，不需要 gen_snapshot，因此可以稳定出包。
-#    等 fork 发布 Windows 版 AOT 生成器，把 mode 打开即可，其余步骤不用改。
+#    libflutter.so 里的 Dart VM 严格同版本，否则产出「能装、一启动就 SIGSEGV」
+#    的 HAP（报 VM snapshot invalid）。切到 3.44.9 之后两边都是 Dart 3.12.2，
+#    理论上已经配套，但 release 还没在真机上验证；鸿蒙侧运行时依赖（MPV /
+#    sherpa / tflite / QuickJS）也还没移植完，出 release 没有意义。debug 走
+#    JIT，不需要 gen_snapshot，所以先稳定在 debug。等运行时移植完成、并在
+#    真机上验过 AOT，把 HAP_BUILD_MODE 改成 release 即可。
 #
 # 3) 用 pubspec_ohos.yaml 而不是 pubspec.yaml
-#    见该文件头部注释：鸿蒙 fork 自带 Dart 3.13.3，主干清单写的 ^3.13.4 解析不过；
+#    见该文件头部注释：鸿蒙 fork 自带 Dart 3.12.2，主干清单写的 ^3.13.4 解析不过；
 #    同时要补 path_provider / file_selector / video_player / webview_flutter
 #    四个平台实现包。清单里没列 lume_cat_node（iOS 专用 Node 宿主）。
+#
+# 4) 为什么仓库里带着 libsqlite3.so
+#    package:sqlite3 3.x 走 Dart native assets，鸿蒙不在它的平台表里；清单里
+#    把 hook 设成 source: system，运行期只做 dlopen("libsqlite3.so")。OpenHarmony
+#    不对外暴露 sqlite，所以库由我们自己从 amalgamation 编（tool/build_sqlite_ohos.sh），
+#    产物落在 ohos/entry/libs/<abi>/，hvigor 会打进 HAP 的 libs/<abi>/。
+#    另外 fork 的 flutter_tools 在 ohos 上漏装 NativeAssetsManifest.json，
+#    build 前要打 tool/patch_flutter_tools_ohos.py 这个补丁。
 #
 # 产物：未签名 HAP（--no-codesign）。安装要自己签名：
 #   java -jar hap-sign-tool.jar sign-app ...  或用 DevEco 的自动签名。
@@ -68,9 +76,14 @@ jobs:
     timeout-minutes: 90
 
     env:
-      # 鸿蒙 Flutter fork：3.47.9 与主干 3.47.5 同属一个上游批次，Dart 3.13.x，
-      # 是目前唯一「引擎 / patched_sdk / 定制 Dart SDK 三件套齐全」的稳定 tag。
-      FLUTTER_OHOS_REF: 3.47.9-ohos-1.0.0
+      # 鸿蒙 Flutter fork：必须选 **3.44.9 这一批**，不能跟着主干升到 3.47.9。
+      # fork 只重建了 arm64 引擎；3.47.9-ohos-1.0.0 的 ohos-x64 引擎仍是 3.44.9
+      # 时代的老货（Dart 3.12.2，kernel format 130），而它的定制 Dart SDK 是
+      # 3.13.3（kernel 138）——模拟器是 x86_64，装上去 Dart 一行都跑不起来，
+      # 日志里是 "Invalid kernel binary format version (expected 130, found 138)"，
+      # 屏幕上就是一片白。3.44.9+ohos-0.0.1-canary1 的 Dart SDK、x64 引擎、
+      # patched_sdk 全是 3.12.2，三者自洽，模拟器和真机都能跑。
+      FLUTTER_OHOS_REF: 3.44.9+ohos-0.0.1-canary1
       # **必须与 workspace 同盘（D:）**：flutter-hvigor-plugin 用 path.relative
       # 算插件 srcPath，跨盘符会返回绝对路径，hvigor 直接报
       # "The srcPath is not a relative path: C:/.../integration_test/ohos"。
@@ -127,7 +140,7 @@ jobs:
           api="$(grep -o '"apiVersion"[^,]*' "$sdk_pkg" | head -1 | grep -o '[0-9]\+')"
           echo "HarmonyOS SDK API: ${api:-unknown}"
           if [ -n "${api:-}" ] && [ "$api" -lt 26 ]; then
-            echo "::error::SDK API $api 低于 flutter_ohos 3.47.9 要求的 26"
+            echo "::error::SDK API $api 低于鸿蒙 Flutter fork 要求的 26"
             exit 1
           fi
           # CLT 自带 node / ohpm / hvigor，优先用自带的
@@ -157,6 +170,16 @@ jobs:
           git clone --depth 1 -b "$FLUTTER_OHOS_REF" \
             https://atomgit.com/oh-flutter/flutter_flutter.git "$FLUTTER_OHOS_HOME"
           echo "flutter_ohos $FLUTTER_OHOS_REF -> $(git -C "$FLUTTER_OHOS_HOME" rev-parse HEAD)"
+
+      # fork 的 ohos.dart 少写了一步：android/ios/linux 都会把 build hooks 产出的
+      # NativeAssetsManifest.json 塞进 flutter_assets，只有 ohos 漏了。缺这个文件
+      # Dart VM 不知道 libsqlite3.so 的存在，第一次 sqlite3.open() 就抛
+      # "Failed to lookup symbol"。脚本幂等，并顺手删掉工具快照 stamp 强制重建。
+      - name: 给 flutter_tools 打原生资源清单补丁
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tool/patch_flutter_tools_ohos.py "$FLUTTER_OHOS_HOME"
 
       # 首次调用会下载定制 Dart SDK（atomgit Release）并编译 flutter_tools。
       # 不做 URL 重写：fork 内的 dart-sdk-url.ohos 已经指向与本 tag 配套的工件。
@@ -312,6 +335,16 @@ jobs:
                   raise SystemExit(f'{hap.name} 里没有 libflutter.so')
               if not app_libs:
                   raise SystemExit(f'{hap.name} 里既没有 libapp.so 也没有 kernel_blob.bin')
+              # sqlite 是我们自带编译的（见 tool/build_sqlite_ohos.sh），
+              # 少了库或者少了映射清单，装到设备上一打开就白屏卡启动页。
+              sqlite_libs = [n for n in names if n.rsplit('/', 1)[-1] == 'libsqlite3.so']
+              has_manifest = any(n.endswith('NativeAssetsManifest.json') for n in names)
+              print(f'  sqlite={[n.rsplit("/", 1)[-2] + "/libsqlite3.so" for n in sqlite_libs] or "missing"}, '
+                    f'native_assets_manifest={"ok" if has_manifest else "missing"}')
+              if not sqlite_libs:
+                  raise SystemExit(f'{hap.name} 里没有 libsqlite3.so')
+              if not has_manifest:
+                  raise SystemExit(f'{hap.name} 缺 NativeAssetsManifest.json')
           PY
           (cd "$out" && sha256sum ./*.hap | tee SHA256SUMS.harmonyos.txt)
 

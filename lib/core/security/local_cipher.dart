@@ -40,6 +40,21 @@ class LocalCipher {
             .invokeMethod<String>('storageKey');
         if (value == null) throw StateError('无法读取本机安全存储密钥');
         key = base64Decode(value);
+      } else if (Platform.operatingSystem == 'ohos') {
+        // 鸿蒙：el2 应用沙箱本身就是按应用隔离的，密钥文件只有本应用可读。
+        // 这里还没有接 HUKS（@ohos.security.huks），不是硬件级保护；
+        // 但在接入之前，至少保证密钥不落在可导出目录、也不进备份。
+        final file = File('${directory.path}/private-storage.key');
+        await file.parent.create(recursive: true);
+        if (await file.exists()) {
+          key = await file.readAsBytes();
+          if (key.length != 32) throw StateError('本机密钥文件已损坏');
+        } else {
+          key = random(32);
+          final temp = File('${file.path}.tmp');
+          await temp.writeAsBytes(key, flush: true);
+          await temp.rename(file.path);
+        }
       } else if (Platform.isWindows) {
         final file = File('${directory.path}/private-storage.key');
         await file.parent.create(recursive: true);

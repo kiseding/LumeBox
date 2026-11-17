@@ -5,9 +5,15 @@
 # 而不是增量片段。其余平台（Android/iOS/Windows）仍用 pubspec.yaml。
 #
 # 与 pubspec.yaml 的两处差异：
-#   1. sdk 下限放到 3.13.0：鸿蒙 Flutter fork（3.47.9-ohos-1.0.0）自带的是
-#      Dart 3.13.3，而主干清单写的是 ^3.13.4，直接拿过去会解析失败。
-#      LumeBox 没有用到 3.13.4 的新语言特性，放宽后行为一致。
+#   1. sdk 下限放到 3.12.0：鸿蒙 Flutter fork 锁的是
+#      3.44.9+ohos-0.0.1-canary1（Dart 3.12.2），而主干清单写的是 ^3.13.4。
+#      **不能用 3.47.x 系列**：那几版的 ohos-x64 引擎从来没跟着 Dart 3.13
+#      重建过，libflutter.so 里仍是 Dart 3.12.2（kernel 130），而工具链的
+#      frontend_server 产出 kernel 138，装到 x64 模拟器上直接
+#      "Invalid kernel binary format version (expected 130, found 138)" → 白屏。
+#      3.44.9 这套的 engine / dart-sdk / patched_sdk / gen_snapshot 全是
+#      3.12.2，是当前唯一自洽且带 x64 产物的组合。
+#      LumeBox 没有用到 3.13 的新语言特性，放宽后行为一致。
 #   2. 补上 4 个鸿蒙平台实现包（都是 flutter 官方插件的 OpenHarmony SIG 移植，
 #      发布在 pub.dev 上，插件名带 _ohos 后缀）。它们只在 ohos 平台参与构建，
 #      其余平台不会被打进包里。
@@ -40,8 +46,9 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  # 鸿蒙 fork 自带 Dart 3.13.3，比主干清单的 ^3.13.4 低一个补丁位。
-  sdk: '>=3.13.0 <4.0.0'
+  # 鸿蒙 fork（3.44.9+ohos-0.0.1-canary1）自带 Dart 3.12.2；同时兼容 3.13，
+  # 将来 fork 补齐 x64 引擎后可以直接换回去。
+  sdk: '>=3.12.0 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -62,7 +69,9 @@ dependencies:
   # 真正生效——上游构建把该符号设为 hidden，中断通路不可用。
   quickjs_engine:
     path: third_party/quickjs_engine
-  sqlite3: ^3.7.0
+  # 3.44.9 的 Flutter 把 meta 钉在 1.18.0，而 sqlite3 >=3.6 依赖的
+  # hooks -> record_use 要求 meta ^1.19.0，解析必然失败，这里退到 3.5.2。
+  sqlite3: ^3.5.2
   image: ^4.10.1
   http: ^1.6.0
   html: ^0.15.7
@@ -77,7 +86,7 @@ dependencies:
   # 内置 WebView（用户要求的「网页视图」）：图源被 Cloudflare/WAF 拦下时，
   # 在 App 内打开源站让用户手动过真人校验，再把会话 Cookie 取回来复用。
   # iOS 走 WKWebView（webview_flutter_wkwebview，随插件自动带上）。
-  webview_flutter_wkwebview: ^3.27.0
+  webview_flutter_wkwebview: ^3.26.2
   webview_flutter: ^4.13.0
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
@@ -151,9 +160,13 @@ dependency_overrides:
 # libsqlite3.arm64.linux.so（glibc 版），装进 HAP 也加载不了，构建期还会因为
 # 拿不到 GitHub Release 直接失败。
 #
-# 这里改成 source: system —— 构建期不再下载任何东西，运行时由 dlsym 去找
-# 系统里的 libsqlite3.so。鸿蒙侧真正的解法是自带 amalgamation 走
-# source: source，留给运行时移植阶段（见上方清单注释）。
+# 这里改成 source: system —— 构建期不下载任何东西，hook 只产出一条映射
+# 「libsqlite3.g.dart -> dlopen("libsqlite3.so")」，库本体由我们自带：
+#   tool/build_sqlite_ohos.sh 用鸿蒙 NDK 编译 amalgamation（3.44.4），
+#   产物在 ohos/entry/libs/<abi>/libsqlite3.so，hvigor 会打进 HAP 的 libs/<abi>/。
+# 注意这条映射要靠 NativeAssetsManifest.json 传给 Dart VM，而 fork 的
+# flutter_tools 在 ohos 上漏装了它（android/ios/linux 都有）——构建前必须打
+# tool/patch_flutter_tools_ohos.py，否则运行期报 Failed to lookup symbol。
 hooks:
   user_defines:
     sqlite3:
