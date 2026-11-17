@@ -256,16 +256,30 @@ jobs:
               find ohos/entry/build -maxdepth 4 2>/dev/null | head -40 || true
               exit "$rc"
             fi
-            # flutter build hap 会把 HAP 同时放到 build/ohos/hap/ 和
-            # ohos/entry/build/default/outputs/default/，取后者（hvigor 的真实产物）。
-            mapfile -t haps < <(find ohos/entry/build build/ohos/hap -name '*.hap' -type f 2>/dev/null | sort -u)
-            if [ "${#haps[@]}" -ne 1 ]; then
-              echo "::error::$target 应产出恰好一个 HAP，实际 ${#haps[@]} 个"
-              printf '%s\n' "${haps[@]}"
+            # hvigor 把 HAP 同时写到 ohos/entry/build/default/outputs/default/
+            # 和 build/ohos/hap/（同一份文件的两次落盘）。优先取前者，
+            # 各目录内部再要求恰好一个，避免把「两个副本」误判成「两个产物」。
+            pick=""
+            for dir in ohos/entry/build build/ohos/hap; do
+              [ -d "$dir" ] || continue
+              mapfile -t found < <(find "$dir" -name '*.hap' -type f | sort)
+              if [ "${#found[@]}" -gt 0 ]; then
+                if [ "${#found[@]}" -ne 1 ]; then
+                  echo "::error::$target 在 $dir 下应有恰好一个 HAP，实际 ${#found[@]} 个"
+                  printf '%s\n' "${found[@]}"
+                  exit 1
+                fi
+                pick="${found[0]}"
+                break
+              fi
+            done
+            if [ -z "$pick" ]; then
+              echo "::error::$target 没有产出 HAP"
+              find ohos/entry/build build/ohos/hap -maxdepth 5 2>/dev/null | head -40 || true
               exit 1
             fi
             dst="$out/LumeBox-${version}-${target}-unsigned.hap"
-            cp "${haps[0]}" "$dst"
+            cp "$pick" "$dst"
             echo "$target HAP："
             ls -lh "$dst"
           done
