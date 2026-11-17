@@ -270,7 +270,27 @@ jobs:
           for target in $targets; do
             # Flutter/Hvigor 复用 build 目录，切架构前必须清干净，否则 HAP 里
             # 会混进上一个架构的 libapp.so / libflutter.so。
-            rm -rf build/ohos ohos/entry/build ohos/entry/libs ohos/har
+            #
+            # **ohos/entry/libs 不能整个删**：里面躺着仓库自带的 libsqlite3.so
+            # （见 workflow 头部第 4 条）。只清上一轮的 flutter 产物，再只保留
+            # 本架构的 sqlite 库，避免 arm64 包里混进 x86_64 的 .so。
+            rm -rf build/ohos ohos/entry/build ohos/har
+            git checkout -- ohos/entry/libs 2>/dev/null || true
+            case "$target" in
+              ohos-arm64) keep=arm64-v8a; drop=x86_64 ;;
+              ohos-x64)   keep=x86_64;    drop=arm64-v8a ;;
+              *)          keep="";        drop="" ;;
+            esac
+            if [ -n "$drop" ]; then rm -rf "ohos/entry/libs/$drop"; fi
+            if [ -n "$keep" ] && [ ! -f "ohos/entry/libs/$keep/libsqlite3.so" ]; then
+              echo "::error::缺少 ohos/entry/libs/$keep/libsqlite3.so（用 tool/build_sqlite_ohos.sh 生成）"
+              exit 1
+            fi
+            for abi in arm64-v8a x86_64; do
+              rm -f "ohos/entry/libs/$abi/libflutter.so" \
+                    "ohos/entry/libs/$abi/libapp.so" \
+                    "ohos/entry/libs/$abi/libvmservice_snapshot.so"
+            done
             set +e
             "$FLUTTER_OHOS_HOME/bin/flutter.bat" build hap \
               "--$HAP_BUILD_MODE" --no-codesign --target-platform "$target"
