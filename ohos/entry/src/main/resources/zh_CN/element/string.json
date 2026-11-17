@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Lume Box 主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Lume Box"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Lume Box"
+    }
+  ]
+}

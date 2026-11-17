@@ -1,0 +1,197 @@
+# HarmonyOS（鸿蒙）专用依赖清单。
+#
+# CI 的 build-harmonyos.yml 会把它整个复制成 pubspec.yaml 再执行
+# `flutter pub get` / `flutter build hap`，所以这里必须是一份**完整**的清单，
+# 而不是增量片段。其余平台（Android/iOS/Windows）仍用 pubspec.yaml。
+#
+# 与 pubspec.yaml 的两处差异：
+#   1. sdk 下限放到 3.13.0：鸿蒙 Flutter fork（3.47.9-ohos-1.0.0）自带的是
+#      Dart 3.13.3，而主干清单写的是 ^3.13.4，直接拿过去会解析失败。
+#      LumeBox 没有用到 3.13.4 的新语言特性，放宽后行为一致。
+#   2. 补上 4 个鸿蒙平台实现包（都是 flutter 官方插件的 OpenHarmony SIG 移植，
+#      发布在 pub.dev 上，插件名带 _ohos 后缀）。它们只在 ohos 平台参与构建，
+#      其余平台不会被打进包里。
+#
+# 尚未移植、因此在鸿蒙上会退化为「运行时报 MissingPluginException」的能力：
+#   - package_info_plus（SIG 移植包声明的 sdk 上限是 <3.0.0，与 Dart 3 不兼容）
+#   - just_audio / audio_session（朗读播放；pub 上没有可用 ohos 实现）
+#   - media_kit（MPV 内核）、sherpa_onnx（TTS/ASR）、tflite_flutter（OCR）
+#   - quickjs_engine / lume_cat_node（本地 vendored 插件，需要 ohos 原生工程）
+# 这些都还留在清单里：lib/ 无条件 import 它们，删掉会直接编译失败。
+
+name: lume_box
+description: "Lume Box"
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  # 鸿蒙 fork 自带 Dart 3.13.3，比主干清单的 ^3.13.4 低一个补丁位。
+  sdk: '>=3.13.0 <4.0.0'
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+  # 本地 vendored 副本（路径依赖）：上游 0.1.6 + 一处安全补丁
+  # （导出 JS_SetInterruptHandler，见 third_party/quickjs_engine/PATCHES.md）。
+  # 用路径依赖而不是 pub 版本，是为了让「死循环指令计数超时销毁」这条安全能力
+  # 真正生效——上游构建把该符号设为 hidden，中断通路不可用。
+  quickjs_engine:
+    path: third_party/quickjs_engine
+  sqlite3: ^3.7.0
+  image: ^4.10.1
+  http: ^1.6.0
+  html: ^0.15.7
+  path_provider: ^2.1.6
+  path: ^1.9.1
+  ffi: ^2.2.0
+  video_player: ^2.14.1
+  # 本地导入图源脚本：从文件系统挑选 .js 文件（iOS 走系统文档选择器）。
+  file_selector: ^1.1.0
+  # 「设置 → 关于」里显示版本与构建号（CI 每个构建一个号）；装的是哪一版要能一眼看到。
+  package_info_plus: ^10.2.2
+  # 内置 WebView（用户要求的「网页视图」）：图源被 Cloudflare/WAF 拦下时，
+  # 在 App 内打开源站让用户手动过真人校验，再把会话 Cookie 取回来复用。
+  # iOS 走 WKWebView（webview_flutter_wkwebview，随插件自动带上）。
+  webview_flutter_wkwebview: ^3.27.0
+  webview_flutter: ^4.13.0
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_ios_video: ^1.1.4
+  media_kit_libs_android_video: ^1.3.8
+  media_kit_libs_windows_video: ^1.0.11
+  # Current source additions since the archived manifest (2026-10-08).
+  archive: ^4.3.0
+  audio_session: ^0.2.4
+  crypto: ^3.0.7
+  http_parser: ^4.1.2
+  just_audio: ^0.10.6
+  just_audio_background: 0.0.1-beta.17
+  pointycastle: ^4.0.0
+  sherpa_onnx: ^1.13.8
+  tflite_flutter: ^0.12.1
+  # flutter_svg 的编译器目前支持到 xml 7.0.1；朗读 SSML 与图标解析共用。
+  xml: 7.0.1
+  # lume_cat_node 是 iOS 专用的 Node 宿主插件（只有 ios 平台声明，lib/ 里
+  # 零引用），鸿蒙侧不需要也编不了；同时它把 sdk 下限钉在 ^3.13.4，
+  # 留在清单里会让 Dart 3.13.3 的 fork 解析失败，所以鸿蒙清单里直接去掉。
+  cupertino_http: 3.1.0
+  palette_generator: 0.3.3+7
+  flutter_svg: ^2.3.2
+
+  # ===== OpenHarmony 平台实现（仅在 ohos 目标上参与构建）=====
+  path_provider_ohos: ^2.2.1
+  file_selector_ohos: ^0.5.0
+  video_player_ohos: ^1.0.0
+  webview_flutter_ohos: ^3.15.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^6.0.0
+
+  # 图标生成工具（只在本地生成 iOS 图标资源，不参与运行时）。
+  flutter_launcher_icons: ^0.14.1
+
+  # 测试替身用它的类型（假 video_player 平台，验请求头 / 缓冲参数到达平台层）。
+  video_player_platform_interface: ^6.9.0
+  # WebView 页面生命周期与退出停止播放的测试替身。
+  webview_flutter_platform_interface: ^2.15.1
+  path_provider_platform_interface: ^2.1.3
+
+# 本地 vendored 副本（路径覆盖）：上游 2.12.0 + 一处补丁
+# （把宿主写入的播放缓冲参数应用到 AVPlayer，见
+# third_party/video_player_avfoundation/PATCHES.md）。
+# 为什么必须覆盖：真机反馈的「拿到地址后要等 1–2 分钟才出画面」里，
+# AVPlayer 的 preferredForwardBufferDuration / automaticallyWaitsToMinimizeStalling
+# 只存在于原生对象上，而插件不把 AVPlayer 暴露给宿主——只有在插件内部创建播放器
+# 的那一刻才能装上；宿主没配置过时补丁什么都不做（与上游行为一致）。
+dependency_overrides:
+  # Keep pure audio playback separate from video and comic speech ownership.
+  audio_service:
+    path: third_party/audio_service_ownership
+  video_player_avfoundation:
+    path: third_party/video_player_avfoundation
+
+# 原生资源（native assets）配置。
+#
+# package:sqlite3 3.7 起把 SQLite 改成「构建期下载预编译库」的原生资源包，
+# 下载地址按 targetOS 拼：ohos 不在它的平台表里，会退化成 linux，于是去拉
+# libsqlite3.arm64.linux.so（glibc 版），装进 HAP 也加载不了，构建期还会因为
+# 拿不到 GitHub Release 直接失败。
+#
+# 这里改成 source: system —— 构建期不再下载任何东西，运行时由 dlsym 去找
+# 系统里的 libsqlite3.so。鸿蒙侧真正的解法是自带 amalgamation 走
+# source: source，留给运行时移植阶段（见上方清单注释）。
+hooks:
+  user_defines:
+    sqlite3:
+      source: system
+
+flutter:
+  uses-material-design: true
+  shaders:
+    - assets/shaders/dock_liquid_lens.frag
+    - assets/shaders/dock_liquid_surface.frag
+    - assets/shaders/comic_page_filters.frag
+    - assets/shaders/comic_glass.frag
+  assets:
+    - assets/source_icons/
+    - assets/branding/
+    - assets/rex/lumebox_demo.js
+    # 参考图只给 tool/settings_refactor_preview_test.dart 做版式对照，运行时不读。
+    - assets/js/
+    - assets/cat/
+    - assets/local_danmaku/
+    # 只放 256 px 预览图；1024 母图在 tool/icon/，只给 flutter_launcher_icons 用。
+    - assets/icon/
+    # waifu2x 权重（17 MB）不随包发布：安装时逐份下载，这里只留清单与许可。
+    - assets/models/waifu2x/ORIGIN.json
+    - assets/models/waifu2x/LICENSE
+    - assets/models/intro/anchor_vectors.json
+    - assets/models/intro/prompts.json
+    - assets/models/intro/MobileCLIP-LICENSE.txt
+    - assets/models/intro/MobileCLIP-LICENSE_MODELS.txt
+    - assets/models/intro/MobileCLIP-ACKNOWLEDGEMENTS.txt
+    - assets/models/intro/YAMNet-LICENSE.txt
+    # 离线音色包只留清单；权重首次启用时按 manifest 的 sources 下载。
+    - assets/speech/vits_aishell3/manifest.json
+
+# 图标生成配置：只生成 iOS 图标；remove_alpha_ios 强制抹除 Alpha 通道
+# （iOS 图标不接受透明通道，实色底才能通过系统图标校验）。
+flutter_launcher_icons:
+  android: false
+  ios: true
+  remove_alpha_ios: true
+  image_path_ios: "tool/icon/app_icon_1024.png"

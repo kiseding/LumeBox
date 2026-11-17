@@ -304,7 +304,11 @@ Widget videoGlassDialogSurface(BuildContext context, Widget dialog) {
                 padding:
                     dialog.contentPadding ??
                     const EdgeInsets.fromLTRB(24, 12, 24, 20),
-                child: dialog.scrollable
+                // 用 `== true` 而不是直接当条件：鸿蒙 Flutter fork（3.47.9-ohos）
+                // 把 AlertDialog.scrollable 改成了 bool?，而官方 3.47.5 是 bool。
+                // 写成相等判断两边都能编译，也不必加 ?? false（官方版会报
+                // unnecessary null check）。
+                child: dialog.scrollable == true
                     ? SingleChildScrollView(child: dialog.content!)
                     : dialog.content!,
               ),

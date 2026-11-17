@@ -1,0 +1,300 @@
+# 鸿蒙（HarmonyOS）出包：Windows 托管 runner，不装 DevEco Studio。
+#
+# 参考 kiseding/koyze 的 build-harmonyos-online.yml，但针对本仓库做了三处调整。
+#
+# 1) 为什么是 Windows + 华为「命令行工具」
+#    鸿蒙 Flutter fork（atomgit.com/oh-flutter/flutter_flutter）给 Windows 宿主
+#    提供完整的一套定制工件：定制 Dart SDK（带 ohos 补丁）、三档 har、patched_sdk。
+#    华为 Command Line Tools 里带了 node / ohpm / hvigor / SDK，装上就能脱离
+#    DevEco Studio 出包。CLT 的 macOS 版要登录华为开发者账号才能下载，CI 拿不到，
+#    所以这里固定 Windows。CLT 由 kiseding/koyze 的 Release 分卷提供（3 个 part
+#    共 2.6 GB，解压 7.8 GB），用 GITHUB_TOKEN 直接下载，不绕过任何许可。
+#
+# 2) 为什么现在只出 debug 包
+#    release / profile 需要 AOT，而 AOT 生成器（gen_snapshot.exe）必须与
+#    libflutter.so 里的 Dart VM 同版本。3.47.9-ohos 批次只发布了 darwin-x64
+#    的 gen_snapshot（Mach-O 实为 arm64），OBS 上 windows-x64 那份还是 3.44.9
+#    时代的旧货——实测 `gen_snapshot.exe --version` 报 Dart 3.12.2，而引擎是
+#    3.13.x，拿它做 AOT 会产出「能装、一启动就 SIGSEGV」的 HAP（报
+#    VM snapshot invalid）。debug 走 JIT，不需要 gen_snapshot，因此可以稳定出包。
+#    等 fork 发布 Windows 版 AOT 生成器，把 mode 打开即可，其余步骤不用改。
+#
+# 3) 用 pubspec_ohos.yaml 而不是 pubspec.yaml
+#    见该文件头部注释：鸿蒙 fork 自带 Dart 3.13.3，主干清单写的 ^3.13.4 解析不过；
+#    同时要补 path_provider / file_selector / video_player / webview_flutter
+#    四个平台实现包。清单里没列 lume_cat_node（iOS 专用 Node 宿主）。
+#
+# 产物：未签名 HAP（--no-codesign）。安装要自己签名：
+#   java -jar hap-sign-tool.jar sign-app ...  或用 DevEco 的自动签名。
+name: Build HAP (HarmonyOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: '目标架构'
+        type: choice
+        options: [arm64, x64, both]
+        default: arm64
+      analyze_only:
+        description: '只跑静态检查，不出包'
+        type: boolean
+        default: false
+  # 暂不接 push：鸿蒙侧运行时依赖（MPV / sherpa / tflite / QuickJS 移植）
+  # 还没落地，每次 push 都跑 30 分钟的 HAP 构建没有额外信息量。
+  # 运行时移植完成、流水线稳定后再打开下面这段：
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'lib/**'
+  #     - 'ohos/**'
+  #     - 'assets/**'
+  #     - 'pubspec_ohos.yaml'
+  #     - 'third_party/**'
+  #     - '.github/workflows/build-harmonyos.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ohos-${{ github.ref }}
+  cancel-in-progress: true
+
+run-name: Build HAP (HarmonyOS) — ${{ inputs.target || 'arm64' }}
+
+jobs:
+  build-hap:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    env:
+      # 鸿蒙 Flutter fork：3.47.9 与主干 3.47.5 同属一个上游批次，Dart 3.13.x，
+      # 是目前唯一「引擎 / patched_sdk / 定制 Dart SDK 三件套齐全」的稳定 tag。
+      FLUTTER_OHOS_REF: 3.47.9-ohos-1.0.0
+      # 短路径：Flutter 仓库层级很深，配 workspace 的长路径会撞 260 字符上限。
+      FLUTTER_OHOS_HOME: C:/fo/flutter_ohos
+      # CLT 放 D 盘：分卷 2.6 GB + 解压 7.8 GB，windows-latest 的 C 盘只剩十几 GB。
+      HOS_SDK_HOME: D:/fo/command-line-tools/sdk
+      DEVECO_SDK_HOME: D:/fo/command-line-tools/sdk
+      # runner 在海外，用官方 pub.dev：国内镜像的 CDN 边缘节点偶尔返回与元数据
+      # 哈希不一致的归档，pub 会以 "wrong content-hash" 失败，且每次命中的包随机。
+      PUB_HOSTED_URL: https://pub.dev
+      # 引擎 har / 定制 Dart SDK 走华为 OBS 与 atomgit Release，与 pub 无关。
+      FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+      FLUTTER_OHOS_STORAGE_BASE_URL: https://flutter-ohos.obs.cn-south-1.myhuaweicloud.com
+      # 必须与 workspace 同盘：flutter-hvigor-plugin 用 path.relative 算插件
+      # srcPath，Windows 上跨盘符会返回绝对路径，hvigor 直接报
+      # "The srcPath is not a relative path"。
+      PUB_CACHE: D:/pc
+      # CLT 在 kiseding/koyze 的 Release 里；换仓库时改 vars.OHOS_TOOLCHAIN_REPO。
+      TOOLCHAIN_TAG: toolchain-ohos-3.47.7
+      HAP_BUILD_MODE: debug
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # CLT 2.6 GB，超过 Release 单文件 2 GB 上限，所以按 1.2 GB 分卷存。
+      # 下载失败时 gh 会退出非 0，宁可在这里红，也别拖到 hvigor 才报缺 SDK。
+      - name: 取华为命令行工具（分卷解压）
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tc_repo="${{ vars.OHOS_TOOLCHAIN_REPO || 'kiseding/koyze' }}"
+          mkdir -p /d/fo/dl
+          gh release download "$TOOLCHAIN_TAG" --repo "$tc_repo" \
+            --pattern 'command-line-tools-windows.zip.part*' --dir /d/fo/dl --clobber
+          cd /d/fo/dl
+          ls -lh
+          cat command-line-tools-windows.zip.part* > clt.zip
+          rm -f command-line-tools-windows.zip.part*
+          # 用 7z 而不是 tar：windows-latest 自带 7-Zip，而 Git Bash 里的 tar
+          # 不一定支持 zip 容器。CLT 单包解压后 7.8 GB，7z 也比 bsdtar 快。
+          sevenzip="$(command -v 7z || echo '/c/Program Files/7-Zip/7z.exe')"
+          "$sevenzip" x -y clt.zip -o/d/fo > /dev/null
+          rm -f clt.zip
+          sdk_pkg="$HOS_SDK_HOME/default/sdk-pkg.json"
+          if [ ! -f "$sdk_pkg" ]; then
+            echo "::error::CLT 里没有 sdk/default/sdk-pkg.json，检查压缩包顶层目录名是否为 command-line-tools/"
+            ls -la /d/fo
+            exit 1
+          fi
+          api="$(grep -o '"apiVersion"[^,]*' "$sdk_pkg" | head -1 | grep -o '[0-9]\+')"
+          echo "HarmonyOS SDK API: ${api:-unknown}"
+          if [ -n "${api:-}" ] && [ "$api" -lt 26 ]; then
+            echo "::error::SDK API $api 低于 flutter_ohos 3.47.9 要求的 26"
+            exit 1
+          fi
+          # CLT 自带 node / ohpm / hvigor，优先用自带的
+          for d in tool/node node bin hvigor/bin ohpm/bin; do
+            [ -d "/d/fo/command-line-tools/$d" ] && echo "D:/fo/command-line-tools/$d" >> "$GITHUB_PATH"
+          done
+          node --version || echo "::warning::CLT 自带 node 未进 PATH"
+
+      # hvigor 需要 JDK；26.0.0 起推荐 21。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 拉鸿蒙 Flutter fork
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 -b "$FLUTTER_OHOS_REF" \
+            https://atomgit.com/oh-flutter/flutter_flutter.git "$FLUTTER_OHOS_HOME"
+          echo "flutter_ohos $FLUTTER_OHOS_REF -> $(git -C "$FLUTTER_OHOS_HOME" rev-parse HEAD)"
+
+      # 首次调用会下载定制 Dart SDK（atomgit Release）并编译 flutter_tools。
+      # 不做 URL 重写：fork 内的 dart-sdk-url.ohos 已经指向与本 tag 配套的工件。
+      - name: 初始化工具链（定制 Dart SDK + 引擎 har）
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$FLUTTER_OHOS_HOME/bin/flutter.bat" --version
+          "$FLUTTER_OHOS_HOME/bin/flutter.bat" precache --ohos
+          ls "$FLUTTER_OHOS_HOME/bin/cache/artifacts/engine"
+
+      - name: 换入鸿蒙依赖清单并解析
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp pubspec_ohos.yaml pubspec.yaml
+          # pubspec.lock 是给官方 SDK 生成的，里面没有 _ohos 包；不删会解析失败。
+          rm -f pubspec.lock
+          "$FLUTTER_OHOS_HOME/bin/flutter.bat" pub get
+
+      # 引擎与 patched_sdk 必须是同一个 Dart 版本，否则 debug 包也会在设备上
+      # 报 "Unexpected Kernel Format Version"。
+      - name: 校验工具链自洽
+        shell: bash
+        run: |
+          set -euo pipefail
+          engine="$FLUTTER_OHOS_HOME/bin/cache/artifacts/engine"
+          dart_bin="$FLUTTER_OHOS_HOME/bin/cache/dart-sdk/bin/dart.exe"
+          dart_version="$("$dart_bin" --version 2>&1 | tr -d '\r' | sed -n 's/^Dart SDK version: \([^ ]*\).*/\1/p')"
+          test -n "$dart_version" || { echo "::error::无法读取 Dart SDK 版本"; exit 1; }
+          echo "Dart SDK: $dart_version"
+          echo "engine.ohos.har: $(tr -d '\r\n' < "$FLUTTER_OHOS_HOME/bin/internal/engine.ohos.har.version")"
+
+          for arch in arm64 x64; do
+            for mode in '' -profile -release; do
+              test -f "$engine/ohos-$arch$mode/flutter.har" || {
+                echo "::error::缺少 ohos-$arch$mode/flutter.har"
+                exit 1
+              }
+            done
+          done
+
+          # patched_sdk 决定 debug 包的 kernel 格式，必须来自同一批次。
+          # 注意它在 common/ 下，不在引擎 arch 目录里。
+          test -f "$engine/common/flutter_patched_sdk/platform_strong.dill" || {
+            echo "::error::precache 没拿到 flutter_patched_sdk"
+            ls -R "$engine" | head -40
+            exit 1
+          }
+
+          # 顺带把 AOT 生成器的版本记下来：debug 不用它，但日志里留着，
+          # 将来要开 release 时一眼能看出是不是还是那份 3.12.2 的老货。
+          snap="$engine/ohos-arm64-release/windows-x64/gen_snapshot.exe"
+          if [ -f "$snap" ]; then
+            "$snap" --version 2>&1 | tr -d '\r' | sed 's/^/  gen_snapshot: /'
+          else
+            echo "  gen_snapshot: 未下载（debug 构建不需要）"
+          fi
+
+      - name: 静态检查（鸿蒙 fork 的 API 面）
+        if: ${{ inputs.analyze_only != true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # fork 里 AlertDialog.scrollable 之类的类型与官方 3.47.5 有出入，
+          # 这套检查能提前拦住「主干绿、鸿蒙红」的差异。
+          "$FLUTTER_OHOS_HOME/bin/flutter.bat" analyze --no-fatal-infos
+
+      - name: 构建 HAP
+        if: ${{ inputs.analyze_only != true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.target || 'arm64' }}" in
+            both)  targets="ohos-arm64 ohos-x64" ;;
+            x64)   targets="ohos-x64" ;;
+            *)     targets="ohos-arm64" ;;
+          esac
+          version="$(awk '/^version:/{print $2; exit}' pubspec.yaml)"
+          version="${version%%+*}"
+          test -n "$version" || { echo "::error::读不到 pubspec 里的 version"; exit 1; }
+          out="build/harmonyos-$HAP_BUILD_MODE"
+          rm -rf "$out" && mkdir -p "$out"
+
+          for target in $targets; do
+            # Flutter/Hvigor 复用 build 目录，切架构前必须清干净，否则 HAP 里
+            # 会混进上一个架构的 libapp.so / libflutter.so。
+            rm -rf build/ohos ohos/entry/build ohos/entry/libs ohos/har
+            set +e
+            "$FLUTTER_OHOS_HOME/bin/flutter.bat" build hap \
+              "--$HAP_BUILD_MODE" --no-codesign --target-platform "$target"
+            rc=$?
+            set -e
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::$target 构建失败（exit $rc）"
+              echo "--- ohos/entry/build 结构 ---"
+              find ohos/entry/build -maxdepth 4 2>/dev/null | head -40 || true
+              exit "$rc"
+            fi
+            # flutter build hap 会把 HAP 同时放到 build/ohos/hap/ 和
+            # ohos/entry/build/default/outputs/default/，取后者（hvigor 的真实产物）。
+            mapfile -t haps < <(find ohos/entry/build build/ohos/hap -name '*.hap' -type f 2>/dev/null | sort -u)
+            if [ "${#haps[@]}" -ne 1 ]; then
+              echo "::error::$target 应产出恰好一个 HAP，实际 ${#haps[@]} 个"
+              printf '%s\n' "${haps[@]}"
+              exit 1
+            fi
+            dst="$out/LumeBox-${version}-${target}-unsigned.hap"
+            cp "${haps[0]}" "$dst"
+            echo "$target HAP："
+            ls -lh "$dst"
+          done
+
+      - name: 校验 HAP 结构
+        if: ${{ inputs.analyze_only != true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="build/harmonyos-$HAP_BUILD_MODE"
+          count="$(find "$out" -maxdepth 1 -name '*.hap' -type f | wc -l)"
+          test "$count" -ge 1 || { echo "::error::没有产出 HAP"; exit 1; }
+          python - "$out" <<'PY'
+          import sys, zipfile
+          from pathlib import Path
+
+          out = Path(sys.argv[1])
+          for hap in sorted(out.glob('*.hap')):
+              with zipfile.ZipFile(hap) as z:
+                  names = z.namelist()
+              has_ability = any(n.endswith('ets/modules.abc') or n.endswith('module.json') for n in names)
+              flutter_libs = [n for n in names if n.endswith('libflutter.so')]
+              app_libs = [n for n in names if n.endswith('libapp.so') or n.endswith('kernel_blob.bin')]
+              print(f'{hap.name}: {hap.stat().st_size/1048576:.1f} MiB, '
+                    f'module={"ok" if has_ability else "missing"}, '
+                    f'libflutter={len(flutter_libs)}, dart_payload={len(app_libs)}')
+              if not has_ability:
+                  raise SystemExit(f'{hap.name} 缺 HAP 必需条目')
+              if not flutter_libs:
+                  raise SystemExit(f'{hap.name} 里没有 libflutter.so')
+              if not app_libs:
+                  raise SystemExit(f'{hap.name} 里既没有 libapp.so 也没有 kernel_blob.bin')
+          PY
+          (cd "$out" && sha256sum ./*.hap | tee SHA256SUMS.harmonyos.txt)
+
+      - name: 上传 HAP
+        if: ${{ inputs.analyze_only != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LumeBox-HarmonyOS-HAP
+          path: build/harmonyos-${{ env.HAP_BUILD_MODE }}/*
+          if-no-files-found: error
+          retention-days: 7
