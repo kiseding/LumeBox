@@ -71,9 +71,12 @@ jobs:
       # 鸿蒙 Flutter fork：3.47.9 与主干 3.47.5 同属一个上游批次，Dart 3.13.x，
       # 是目前唯一「引擎 / patched_sdk / 定制 Dart SDK 三件套齐全」的稳定 tag。
       FLUTTER_OHOS_REF: 3.47.9-ohos-1.0.0
-      # 短路径：Flutter 仓库层级很深，配 workspace 的长路径会撞 260 字符上限。
-      FLUTTER_OHOS_HOME: C:/fo/flutter_ohos
-      # CLT 放 D 盘：分卷 2.6 GB + 解压 7.8 GB，windows-latest 的 C 盘只剩十几 GB。
+      # **必须与 workspace 同盘（D:）**：flutter-hvigor-plugin 用 path.relative
+      # 算插件 srcPath，跨盘符会返回绝对路径，hvigor 直接报
+      # "The srcPath is not a relative path: C:/.../integration_test/ohos"。
+      # 依赖里带 integration_test（它的 ohos 模块就在 SDK 里），这条无法绕开。
+      FLUTTER_OHOS_HOME: D:/fo/flutter_ohos
+      # CLT 同样放 D 盘：分卷 2.6 GB + 解压 7.8 GB，C 盘只剩十几 GB 不够。
       HOS_SDK_HOME: D:/fo/command-line-tools/sdk
       DEVECO_SDK_HOME: D:/fo/command-line-tools/sdk
       # runner 在海外，用官方 pub.dev：国内镜像的 CDN 边缘节点偶尔返回与元数据
@@ -143,6 +146,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # 跨盘符会让 hvigor 报 "srcPath is not a relative path"（见 env 注释），
+          # 与其等到出包阶段炸，不如在这里直接拦下。
+          ws_drive="${GITHUB_WORKSPACE:0:1}"
+          fl_drive="${FLUTTER_OHOS_HOME:0:1}"
+          if [ "${ws_drive,,}" != "${fl_drive,,}" ]; then
+            echo "::error::FLUTTER_OHOS_HOME($fl_drive:) 必须与 workspace($ws_drive:) 同盘"
+            exit 1
+          fi
           git clone --depth 1 -b "$FLUTTER_OHOS_REF" \
             https://atomgit.com/oh-flutter/flutter_flutter.git "$FLUTTER_OHOS_HOME"
           echo "flutter_ohos $FLUTTER_OHOS_REF -> $(git -C "$FLUTTER_OHOS_HOME" rev-parse HEAD)"
