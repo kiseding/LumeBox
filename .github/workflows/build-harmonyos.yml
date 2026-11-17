@@ -177,6 +177,9 @@ jobs:
       # "Failed to lookup symbol"。脚本幂等，并顺手删掉工具快照 stamp 强制重建。
       - name: 给 flutter_tools 打原生资源清单补丁
         shell: bash
+        env:
+          # 脚本里有中文输出，Windows 默认 cp1252 会让 print 抛异常。
+          PYTHONUTF8: '1'
         run: |
           set -euo pipefail
           python tool/patch_flutter_tools_ohos.py "$FLUTTER_OHOS_HOME"

@@ -54,6 +54,12 @@ CALL_NEW = """      targetPlatform: TargetPlatform.ohos,
 
 
 def main(argv: list[str]) -> int:
+    # Windows runner 上 stdout 是 cp1252，直接 print 中文会 UnicodeEncodeError
+    # 把脚本打成 exit 1（补丁其实已经写进去了）。强制 UTF-8。
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     if len(argv) != 2:
         print("用法: python tool/patch_flutter_tools_ohos.py <flutter_ohos 根目录>")
         return 2
