@@ -29,21 +29,22 @@ import 'source_manager.dart';
 /// UI 通过它做三件事：管理图源（列出 / 导入 / 启停 / 删除）、打开统一的
 /// [DataSource]、在页面退出时释放板块资源。沙箱、脚本、数据库都封在内部。
 ///
-/// 平台边界：Phase1 只有 iOS 提供图源运行时；其余平台上本门面一律降级——
-/// 列表为空、打开返回 null，不触碰数据库与沙箱。
+/// 平台边界：图源运行时要有原生 QuickJS 桥。iOS 把它编进进程镜像，Android 与
+/// 鸿蒙各带一份交叉编译的 `.so`，桌面平台在测试构建里也能编出来；其余平台上
+/// 本门面一律降级——列表为空、打开返回 null，不触碰数据库与沙箱。
 class LumeSources {
   LumeSources._();
 
-  /// 当前平台是否提供图源运行时（Phase1 只在 iOS 成立）。
+  /// 当前平台是否提供图源运行时（判据是原生桥能不能加载，不是平台白名单）。
   ///
-  /// 这是「漫画 / 视频」的口径；猫源可能更宽（Android 上也有引擎），
+  /// 这是「漫画 / 视频」的口径；猫源可能更宽（Android 上还有 Node-Mobile），
   /// 按板块判断请用 [runtimeAvailableFor]。
   static bool get runtimeAvailable => LumeJsEngine.isSupported;
 
   /// 某板块在当前平台是否有图源运行时。
   ///
-  /// 猫源：Android（QuickJS / Node-Mobile 二选一）+ iOS；
-  /// 其余板块：仅 iOS（宪法第 1 条，Android / Windows 只保留骨架）。
+  /// 猫源：Android（QuickJS / Node-Mobile 二选一）+ iOS + 鸿蒙 + 桌面；
+  /// 其余板块：跟着 [runtimeAvailable]，没有原生桥就只保留骨架。
   static bool runtimeAvailableFor(Section section) =>
       section == Section.cat ? CatEngines.available : runtimeAvailable;
 

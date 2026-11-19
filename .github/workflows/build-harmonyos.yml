@@ -32,6 +32,13 @@
 #    另外 fork 的 flutter_tools 在 ohos 上漏装 NativeAssetsManifest.json，
 #    build 前要打 tool/patch_flutter_tools_ohos.py 这个补丁。
 #
+# 5) 为什么仓库里带着 libquickjs_c_bridge_plugin.so
+#    图源引擎（package:quickjs_engine）在鸿蒙上走原生桥而不是纯 Dart 解释器，
+#    桥由 tool/build_quickjs_ohos.sh 用 DevEco NDK 交叉编译（-static-libstdc++
+#    静态链入 C++ 运行库，产物只依赖 libc.so），和 sqlite 一样放在
+#    ohos/entry/libs/<abi>/，hvigor 打进 HAP 的 libs/<abi>/。应用自身的 libs
+#    目录在 dlopen 搜索路径内，所以 Dart 侧只给文件名。
+#
 # 产物：未签名 HAP（--no-codesign）。安装要自己签名：
 #   java -jar hap-sign-tool.jar sign-app ...  或用 DevEco 的自动签名。
 name: Build HAP (HarmonyOS)
@@ -284,6 +291,12 @@ jobs:
             if [ -n "$drop" ]; then rm -rf "ohos/entry/libs/$drop"; fi
             if [ -n "$keep" ] && [ ! -f "ohos/entry/libs/$keep/libsqlite3.so" ]; then
               echo "::error::缺少 ohos/entry/libs/$keep/libsqlite3.so（用 tool/build_sqlite_ohos.sh 生成）"
+              exit 1
+            fi
+            # QuickJS 桥同理：鸿蒙的 package:quickjs_engine 走原生桥，
+            # 库由 tool/build_quickjs_ohos.sh 用 NDK 交叉编译，随仓库提交。
+            if [ -n "$keep" ] && [ ! -f "ohos/entry/libs/$keep/libquickjs_c_bridge_plugin.so" ]; then
+              echo "::error::缺少 ohos/entry/libs/$keep/libquickjs_c_bridge_plugin.so（用 tool/build_quickjs_ohos.sh 生成）"
               exit 1
             fi
             for abi in arm64-v8a x86_64; do

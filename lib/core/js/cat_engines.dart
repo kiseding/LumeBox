@@ -3,7 +3,9 @@
 /// 平台矩阵（任务书第 1、2、4 条）：
 /// - Android：QuickJS-NG / Node-Mobile 二选一（运行时分支），**只有这里显示切换项**；
 /// - iOS：仅 QuickJS-NG，切换项隐藏；
-/// - 其他平台：没有引擎 → 猫源板块维持骨架。
+/// - 鸿蒙（ohos）：仅 QuickJS-NG（桥由 tool/build_quickjs_ohos.sh 交叉编译），
+///   切换项同样隐藏——鸿蒙没有 Node-Mobile；
+/// - 其余平台：没有引擎 → 猫源板块维持骨架。
 library;
 
 import 'dart:io';
@@ -33,7 +35,24 @@ class CatEngines {
       ? debugPlatformOverride == 'ios'
       : Platform.isIOS;
 
-  /// 本平台可选的引擎（Android 两个、iOS 一个、其余空）。
+  /// 该平台是否自带 QuickJS 原生桥（iOS 编进镜像；鸿蒙、Android 各带一份
+  /// 交叉编译好的 `.so`；桌面平台在测试构建里也能编出来）。
+  ///
+  /// 与 [LumeJsEngine.isSupported] 同一口径：这里只回答「该平台本该有一份」，
+  /// 库能不能真的 dlopen 由 [SourceEngineRegistry.isAvailable] 去探。
+  static bool get _hasQuickJsBridge {
+    if (isIOS) return true;
+    if (isAndroid) return true;
+    if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) return true;
+    // 鸿蒙走 fork 的定制 SDK，operatingSystem 报 'ohos'。
+    if (Platform.operatingSystem == 'ohos') return true;
+    return false;
+  }
+
+  /// 本平台可选的引擎（Android 二选一、其余带桥的平台只有 QuickJS）。
+  ///
+  /// 注意：**选择项有没有** 与 **切换项显不显示** 是两件事。鸿蒙有 QuickJS
+  /// 但没有 node-mobile，所以 choices 有值、[showsEngineSwitch] 仍为 false。
   static List<CatEngineKind> get choices {
     if (isAndroid) {
       return const <CatEngineKind>[
@@ -41,17 +60,19 @@ class CatEngines {
         CatEngineKind.nodeMobile,
       ];
     }
-    if (isIOS) return const <CatEngineKind>[CatEngineKind.quickjs];
+    if (_hasQuickJsBridge) return const <CatEngineKind>[CatEngineKind.quickjs];
     return const <CatEngineKind>[];
   }
 
   /// 猫源板块在本平台是否有可用引擎（没有 → 板块维持骨架）。
   ///
   /// Android 只要有登记引擎就算可用（Node-Mobile 的原生就绪由探测确认）；
-  /// iOS 要求 QuickJS 原生库确实可加载，否则与既有的骨架口径一致。
+  /// iOS / 鸿蒙 / 桌面要求 QuickJS 原生库确实可加载，否则与既有的骨架口径一致。
   static bool get available {
     if (isAndroid) return choices.isNotEmpty;
-    if (isIOS) return SourceEngineRegistry.isAvailable(CatEngineKind.quickjs);
+    if (_hasQuickJsBridge) {
+      return SourceEngineRegistry.isAvailable(CatEngineKind.quickjs);
+    }
     return false;
   }
 

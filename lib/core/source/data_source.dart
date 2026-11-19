@@ -201,7 +201,7 @@ class SourceDescriptor {
 
 /// 数据源失败分类。UI 只需区分这三类即可决定提示文案。
 enum SourceErrorKind {
-  /// 当前平台不提供图源运行时（Phase1 只在 iOS 提供）。
+  /// 当前平台不提供图源运行时（该平台没有可用的原生 QuickJS 桥）。
   unsupported('unsupported', '当前平台不提供源运行时'),
 
   /// 图源不存在、已禁用，或其运行时已经释放。

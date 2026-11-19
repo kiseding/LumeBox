@@ -76,17 +76,29 @@ class LumeJsEngine {
   /// 指令计数等安全上限不开放给设置页，调大它们等于关掉防死循环的保护。
   static SandboxPolicy get policy => LumeSandboxSettings.policy;
 
-  /// Phase1 的图源引擎只随 iOS 提供：插件的原生库仅通过 iOS 的
-  /// `DynamicLibrary.process()` 可加载，Android / Windows 按宪法仅保留空页面骨架。
+  /// 图源引擎的可用平台。
+  ///
+  /// 判定依据是「原生 QuickJS 桥能不能真的加载」，而不是平台白名单：
+  /// iOS 把桥编进进程镜像；Android / 鸿蒙各带一份交叉编译好的 `.so`；
+  /// Windows / macOS / Linux 在桌面构建时也能编出来（测试与预览用）。
   ///
   /// [debugSupportedOverride] 是测试注入点（与 `CatEngines.debugPlatformOverride`
   /// 同一套做法）：测试在原生桥可用的机器上（Windows 需先 `flutter build windows`）
-  /// 把它置 true，就能在非 iOS 平台驱动真实引擎与整条导入链路。
+  /// 把它置 true，就能在桥不可用的平台驱动真实引擎与整条导入链路。
   @visibleForTesting
   static bool? debugSupportedOverride;
 
+  /// 当前平台是否带原生桥（不看库能否加载，只看「该平台本该有一份」）。
+  static bool get _platformHasBridge {
+    if (Platform.isIOS || Platform.isMacOS) return true;
+    if (Platform.isAndroid || Platform.isWindows || Platform.isLinux) return true;
+    // 鸿蒙走 fork 的定制 SDK，operatingSystem 报 'ohos'。
+    if (Platform.operatingSystem == 'ohos') return true;
+    return false;
+  }
+
   static bool get isSupported =>
-      (debugSupportedOverride ?? Platform.isIOS) && LumeSandbox.isSupported;
+      (debugSupportedOverride ?? _platformHasBridge) && LumeSandbox.isSupported;
 
   /// 创建引擎。一个引擎对应一个隔离沙箱；垫片按板块选择
   /// （猫源专属垫片只进猫源的上下文，见 [LumeSourcePolyfills.forSection]）。
@@ -98,7 +110,9 @@ class LumeJsEngine {
     bool widgetCompatibility = false,
   }) async {
     if (!isSupported) {
-      throw UnsupportedError('Phase1 源引擎仅随 iOS 提供');
+      throw UnsupportedError(
+        '当前平台的图源引擎不可用（${LumeSandbox.availabilityDetail}）',
+      );
     }
     // 沙箱身份自带板块前缀（`<板块>:<来源>`），宿主按同一口径校验请求身份，
     // 因此跨板块串线会在第一跳被拒（见 [LumeSourceHost.invoke]）。

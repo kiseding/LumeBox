@@ -173,6 +173,12 @@ class Qjs {
   }
 
   static List<String> _candidates() {
+    // 鸿蒙：桥由 tool/build_quickjs_ohos.sh 用 NDK 交叉编译，
+    // 与 libsqlite3.so 一起放在 ohos/entry/libs/<abi>/，由 hvigor 打进 HAP 的
+    // libs/<abi>/。应用自身的 libs 目录在 dlopen 搜索路径内，给文件名即可。
+    if (Platform.operatingSystem == 'ohos') {
+      return const <String>['libquickjs_c_bridge_plugin.so'];
+    }
     if (Platform.isAndroid) {
       return const <String>['libfastdev_quickjs_runtime.so'];
     }

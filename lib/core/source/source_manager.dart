@@ -11,7 +11,7 @@ import 'source_site_config.dart';
 /// 板块归属：端口以「一个实例只服务一个板块」表达隔离，跨板块由实现侧保证；
 /// 替身实现同样不得跨板块返回图源。
 abstract interface class SourceManager {
-  /// 当前平台是否提供图源运行时（Phase1 只在 iOS 成立）。
+  /// 当前平台是否提供图源运行时（判据是原生 QuickJS 桥能不能加载）。
   bool get runtimeAvailable;
 
   /// 板块内的图源列表，按名称排序。
